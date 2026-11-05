@@ -521,10 +521,11 @@ int __xfrm_state_delete(struct xfrm_state *x)
 		x->km.state = XFRM_STATE_DEAD;
 		spin_lock(&net->xfrm.xfrm_state_lock);
 		list_del(&x->km.all);
-		hlist_del(&x->bydst);
-		hlist_del(&x->bysrc);
-		if (x->id.spi)
-			hlist_del(&x->byspi);
+		hlist_del_init(&x->bydst);
+		hlist_del_init(&x->bysrc);
+
+		if (!hlist_unhashed(&x->byspi))
+			hlist_del_init(&x->byspi);
 		net->xfrm.state_num--;
 		spin_unlock(&net->xfrm.xfrm_state_lock);
 
@@ -1801,7 +1802,7 @@ EXPORT_SYMBOL(km_policy_expired);
 #ifdef CONFIG_XFRM_MIGRATE
 int km_migrate(const struct xfrm_selector *sel, u8 dir, u8 type,
 	       const struct xfrm_migrate *m, int num_migrate,
-	       const struct xfrm_kmaddress *k)
+	       const struct xfrm_kmaddress *k, struct net *net)
 {
 	int err = -EINVAL;
 	int ret;
@@ -1810,7 +1811,8 @@ int km_migrate(const struct xfrm_selector *sel, u8 dir, u8 type,
 	rcu_read_lock();
 	list_for_each_entry_rcu(km, &xfrm_km_list, list) {
 		if (km->migrate) {
-			ret = km->migrate(sel, dir, type, m, num_migrate, k);
+			ret = km->migrate(sel, dir, type, m, num_migrate, k,
+					  net);
 			if (!ret)
 				err = ret;
 		}
