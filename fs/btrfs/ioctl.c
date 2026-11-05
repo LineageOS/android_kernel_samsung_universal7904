@@ -669,6 +669,9 @@ static int create_snapshot(struct btrfs_root *root, struct inode *dir,
 	if (!test_bit(BTRFS_ROOT_REF_COWS, &root->state))
 		return -EINVAL;
 
+	if (btrfs_root_refs(&root->root_item) == 0)
+		return -ENOENT;
+
 	atomic_inc(&root->will_be_snapshoted);
 	smp_mb__after_atomic();
 	btrfs_wait_for_no_snapshoting_writes(root);
@@ -4285,7 +4288,7 @@ static long btrfs_ioctl_space_info(struct btrfs_root *root, void __user *arg)
 		return -ENOMEM;
 
 	space_args.total_spaces = 0;
-	dest = kmalloc(alloc_size, GFP_NOFS);
+	dest = kzalloc(alloc_size, GFP_NOFS);
 	if (!dest)
 		return -ENOMEM;
 	dest_orig = dest;
@@ -4344,7 +4347,8 @@ static long btrfs_ioctl_space_info(struct btrfs_root *root, void __user *arg)
 	user_dest = (struct btrfs_ioctl_space_info __user *)
 		(arg + sizeof(struct btrfs_ioctl_space_args));
 
-	if (copy_to_user(user_dest, dest_orig, alloc_size))
+	if (copy_to_user(user_dest, dest_orig,
+		 space_args.total_spaces * sizeof(*dest_orig)))
 		ret = -EFAULT;
 
 	kfree(dest_orig);
@@ -5256,7 +5260,8 @@ static long _btrfs_ioctl_set_received_subvol(struct file *file,
 
 	ret = btrfs_update_root(trans, root->fs_info->tree_root,
 				&root->root_key, &root->root_item);
-	if (ret < 0) {
+	if (unlikely(ret < 0)) {
+		btrfs_abort_transaction(trans, root, ret);
 		btrfs_end_transaction(trans, root);
 		goto out;
 	}

@@ -595,11 +595,16 @@ ip4ip6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 	if (!skb2)
 		return 0;
 
+	/* Remove debris left by IPv6 stack. */
+	memset(IPCB(skb2), 0, sizeof(*IPCB(skb2)));
+
 	skb_dst_drop(skb2);
 
 	skb_pull(skb2, offset);
 	skb_reset_network_header(skb2);
 	eiph = ip_hdr(skb2);
+	if (eiph->version != 4 || eiph->ihl < 5)
+		goto out;
 
 	/* Try to guess incoming interface */
 	rt = ip_route_output_ports(dev_net(skb->dev), &fl4, NULL,
@@ -673,6 +678,9 @@ ip6ip6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 
 		if (!skb2)
 			return 0;
+
+		/* Remove debris left by outer IPv6 stack. */
+		memset(IP6CB(skb2), 0, sizeof(*IP6CB(skb2)));
 
 		skb_dst_drop(skb2);
 		skb_pull(skb2, offset);
@@ -1696,6 +1704,9 @@ static int ip6_tnl_changelink(struct net_device *dev, struct nlattr *tb[],
 	struct __ip6_tnl_parm p;
 	struct net *net = t->net;
 	struct ip6_tnl_net *ip6n = net_generic(net, ip6_tnl_net_id);
+
+	if (!rtnl_dev_link_net_capable(dev, net))
+		return -EPERM;
 
 	if (dev == ip6n->fb_tnl_dev)
 		return -EINVAL;
