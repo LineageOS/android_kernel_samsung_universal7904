@@ -921,6 +921,7 @@ static netdev_tx_t ipip6_tunnel_xmit(struct sk_buff *skb,
 		ip_rt_put(rt);
 		goto out;
 	}
+	iph6 = ipv6_hdr(skb);
 
 	if (df) {
 		mtu = dst_mtu(&rt->dst) - t_hlen;
@@ -1605,6 +1606,9 @@ static int ipip6_changelink(struct net_device *dev, struct nlattr *tb[],
 	struct ip_tunnel_6rd ip6rd;
 #endif
 	int err;
+
+	if (!rtnl_dev_link_net_capable(dev, net))
+		return -EPERM;
 
 	if (dev == sitn->fb_tunnel_dev)
 		return -EINVAL;

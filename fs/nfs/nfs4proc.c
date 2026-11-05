@@ -303,7 +303,9 @@ static void nfs4_setup_readdir(u64 cookie, __be32 *verifier, struct dentry *dent
 	*p++ = xdr_one;                         /* bitmap length */
 	*p++ = htonl(FATTR4_WORD0_FILEID);             /* bitmap */
 	*p++ = htonl(8);              /* attribute buffer length */
+	spin_lock(&dentry->d_lock);
 	p = xdr_encode_hyper(p, NFS_FILEID(d_inode(dentry->d_parent)));
+	spin_unlock(&dentry->d_lock);
 
 	readdir->pgbase = (char *)p - (char *)start;
 	readdir->count -= readdir->pgbase;
@@ -6197,10 +6199,10 @@ int nfs4_lock_delegation_recall(struct file_lock *fl, struct nfs4_state *state, 
 		return err;
 	do {
 		err = _nfs4_do_setlk(state, F_SETLK, fl, NFS_LOCK_NEW);
-		if (err != -NFS4ERR_DELAY)
+		if (err != -NFS4ERR_DELAY && err != -NFS4ERR_GRACE)
 			break;
 		ssleep(1);
-	} while (err == -NFS4ERR_DELAY);
+	} while (err == -NFS4ERR_DELAY || err == -NFSERR_GRACE);
 	return nfs4_handle_delegation_recall_error(server, state, stateid, fl, err);
 }
 
@@ -7401,7 +7403,7 @@ static int nfs4_verify_back_channel_attrs(struct nfs41_create_session_args *args
 		goto out;
 	if (rcvd->max_rqst_sz > sent->max_rqst_sz)
 		return -EINVAL;
-	if (rcvd->max_resp_sz < sent->max_resp_sz)
+	if (rcvd->max_resp_sz > sent->max_resp_sz)
 		return -EINVAL;
 	if (rcvd->max_resp_sz_cached > sent->max_resp_sz_cached)
 		return -EINVAL;
@@ -8546,6 +8548,11 @@ static void nfs41_free_stateid_done(struct rpc_task *task, void *calldata)
 
 static void nfs41_free_stateid_release(void *calldata)
 {
+	struct nfs_free_stateid_data *data = calldata;
+	struct nfs_client *clp = data->server->nfs_client;
+
+	nfs_sb_deactive(data->server->super);
+	nfs_put_client(clp);
 	kfree(calldata);
 }
 
@@ -8571,14 +8578,25 @@ static struct rpc_task *_nfs41_free_stateid(struct nfs_server *server,
 		.flags = RPC_TASK_ASYNC,
 	};
 	struct nfs_free_stateid_data *data;
+	struct nfs_client *clp = server->nfs_client;
+
+	if (!atomic_inc_not_zero(&clp->cl_count))
+		return ERR_PTR(-EIO);
+	if (!nfs_sb_active(server->super)) {
+		nfs_put_client(clp);
+		return ERR_PTR(-EIO);
+	}
 
 	nfs4_state_protect(server->nfs_client, NFS_SP4_MACH_CRED_STATEID,
 		&task_setup.rpc_client, &msg);
 
 	dprintk("NFS call  free_stateid %p\n", stateid);
 	data = kmalloc(sizeof(*data), GFP_NOFS);
-	if (!data)
+	if (!data) {
+		nfs_sb_deactive(server->super);
+		nfs_put_client(clp);
 		return ERR_PTR(-ENOMEM);
+	}
 	data->server = server;
 	nfs4_stateid_copy(&data->args.stateid, stateid);
 

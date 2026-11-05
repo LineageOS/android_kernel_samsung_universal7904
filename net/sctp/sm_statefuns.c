@@ -82,7 +82,8 @@ static sctp_disposition_t sctp_sf_do_5_2_6_stale(struct net *net,
 						 const struct sctp_association *asoc,
 						 const sctp_subtype_t type,
 						 void *arg,
-						 sctp_cmd_seq_t *commands);
+						 sctp_cmd_seq_t *commands,
+						 sctp_errhdr_t *err);
 static sctp_disposition_t sctp_sf_shut_8_4_5(struct net *net,
 					     const struct sctp_endpoint *ep,
 					     const struct sctp_association *asoc,
@@ -592,6 +593,11 @@ sctp_disposition_t sctp_sf_do_5_1C_ack(struct net *net,
 	sctp_add_cmd_sf(commands, SCTP_CMD_PEER_INIT,
 			SCTP_PEER_INIT(initchunk));
 
+	/* SCTP-AUTH: generate the association shared keys so that
+	 * we can potentially sign the COOKIE-ECHO.
+	 */
+	sctp_add_cmd_sf(commands, SCTP_CMD_ASSOC_SHKEY, SCTP_NULL());
+
 	/* Reset init error count upon receipt of INIT-ACK.  */
 	sctp_add_cmd_sf(commands, SCTP_CMD_INIT_COUNTER_RESET, SCTP_NULL());
 
@@ -605,11 +611,6 @@ sctp_disposition_t sctp_sf_do_5_1C_ack(struct net *net,
 			SCTP_TO(SCTP_EVENT_TIMEOUT_T1_COOKIE));
 	sctp_add_cmd_sf(commands, SCTP_CMD_NEW_STATE,
 			SCTP_STATE(SCTP_STATE_COOKIE_ECHOED));
-
-	/* SCTP-AUTH: genereate the assocition shared keys so that
-	 * we can potentially signe the COOKIE-ECHO.
-	 */
-	sctp_add_cmd_sf(commands, SCTP_CMD_ASSOC_SHKEY, SCTP_NULL());
 
 	/* 5.1 C) "A" shall then send the State Cookie received in the
 	 * INIT ACK chunk in a COOKIE ECHO chunk, ...
@@ -629,7 +630,7 @@ static bool sctp_auth_chunk_verify(struct net *net, struct sctp_chunk *chunk,
 	struct sctp_chunk auth;
 
 	if (!chunk->auth_chunk)
-		return true;
+		return !sctp_auth_recv_cid(chunk->chunk_hdr->type, asoc);
 
 	/* SCTP-AUTH:  auth_chunk pointer is only set when the cookie-echo
 	 * is supposed to be authenticated and we have to do delayed
@@ -1443,6 +1444,12 @@ static sctp_disposition_t sctp_sf_do_unexpected_init(
 
 	/* Tag the variable length parameters.  */
 	chunk->param_hdr.v = skb_pull(chunk->skb, sizeof(sctp_inithdr_t));
+
+	if (asoc->state >= SCTP_STATE_ESTABLISHED) {
+		/* Discard INIT matching peer vtag after handshake completion (stale INIT). */
+		if (ntohl(chunk->subh.init_hdr->init_tag) == asoc->peer.i.init_tag)
+			return sctp_sf_pdiscard(net, ep, asoc, type, arg, commands);
+	}
 
 	/* Verify the INIT chunk before processing it. */
 	err_chunk = NULL;
@@ -2289,9 +2296,15 @@ sctp_disposition_t sctp_sf_cookie_echoed_err(struct net *net,
 	 * errors.
 	 */
 	sctp_walk_errors(err, chunk->chunk_hdr) {
-		if (SCTP_ERROR_STALE_COOKIE == err->cause)
-			return sctp_sf_do_5_2_6_stale(net, ep, asoc, type,
-							arg, commands);
+		if (err->cause != SCTP_ERROR_STALE_COOKIE)
+			continue;
+		/* The staleness is only meaningful if the cause is long
+		 * enough to hold it; a shorter one is malformed.
+		 */
+		if (ntohs(err->length) < sizeof(*err) + sizeof(__be32))
+			break;
+		return sctp_sf_do_5_2_6_stale(net, ep, asoc, type,
+					      arg, commands, err);
 	}
 
 	/* It is possible to have malformed error causes, and that
@@ -2332,12 +2345,11 @@ static sctp_disposition_t sctp_sf_do_5_2_6_stale(struct net *net,
 						 const struct sctp_association *asoc,
 						 const sctp_subtype_t type,
 						 void *arg,
-						 sctp_cmd_seq_t *commands)
+						 sctp_cmd_seq_t *commands,
+						 sctp_errhdr_t *err)
 {
-	struct sctp_chunk *chunk = arg;
 	u32 stale;
 	sctp_cookie_preserve_param_t bht;
-	sctp_errhdr_t *err;
 	struct sctp_chunk *reply;
 	struct sctp_bind_addr *bp;
 	int attempts = asoc->init_err_counter + 1;
@@ -2349,8 +2361,6 @@ static sctp_disposition_t sctp_sf_do_5_2_6_stale(struct net *net,
 				SCTP_PERR(SCTP_ERROR_STALE_COOKIE));
 		return SCTP_DISPOSITION_DELETE_TCB;
 	}
-
-	err = (sctp_errhdr_t *)(chunk->skb->data);
 
 	/* When calculating the time extension, an implementation
 	 * SHOULD use the RTT information measured based on the
@@ -2393,11 +2403,7 @@ static sctp_disposition_t sctp_sf_do_5_2_6_stale(struct net *net,
 	 */
 	sctp_add_cmd_sf(commands, SCTP_CMD_DEL_NON_PRIMARY, SCTP_NULL());
 
-	/* If we've sent any data bundled with COOKIE-ECHO we will need to
-	 * resend
-	 */
-	sctp_add_cmd_sf(commands, SCTP_CMD_T1_RETRAN,
-			SCTP_TRANSPORT(asoc->peer.primary_path));
+	sctp_add_cmd_sf(commands, SCTP_CMD_PURGE_OUTQUEUE, SCTP_NULL());
 
 	/* Cast away the const modifier, as we want to just
 	 * rerun it through as a sideffect.
@@ -5741,8 +5747,12 @@ sctp_disposition_t sctp_sf_t4_timer_expire(
 	sctp_cmd_seq_t *commands)
 {
 	struct sctp_chunk *chunk = asoc->addip_last_asconf;
-	struct sctp_transport *transport = chunk->transport;
+	struct sctp_transport *transport;
 
+	if (!chunk)
+		return SCTP_DISPOSITION_CONSUME;
+
+	transport = chunk->transport;
 	SCTP_INC_STATS(net, SCTP_MIB_T4_RTO_EXPIREDS);
 
 	/* ADDIP 4.1 B1) Increment the error counters and perform path failure

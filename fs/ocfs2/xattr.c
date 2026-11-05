@@ -896,8 +896,8 @@ static int ocfs2_xattr_list_entry(char *buffer, size_t size,
 
 	*result += total_len;
 
-	/* we are just looking for how big our buffer needs to be */
-	if (!size)
+	/* No buffer means we are only looking for the required size. */
+	if (!buffer)
 		return 0;
 
 	if (*result > size)
@@ -6351,7 +6351,7 @@ static int ocfs2_reflink_xattr_header(handle_t *handle,
 	trace_ocfs2_reflink_xattr_header((unsigned long long)old_bh->b_blocknr,
 					 le16_to_cpu(xh->xh_count));
 
-	last = &new_xh->xh_entries[le16_to_cpu(new_xh->xh_count)];
+	last = &new_xh->xh_entries[le16_to_cpu(new_xh->xh_count)] - 1;
 	for (i = 0, j = 0; i < le16_to_cpu(xh->xh_count); i++, j++) {
 		xe = &xh->xh_entries[i];
 
@@ -6364,6 +6364,10 @@ static int ocfs2_reflink_xattr_header(handle_t *handle,
 					(void *)last - (void *)xe);
 				memset(last, 0,
 				       sizeof(struct ocfs2_xattr_entry));
+				last = &new_xh->xh_entries[le16_to_cpu(new_xh->xh_count)] - 1;
+			} else {
+				memset(xe, 0, sizeof(struct ocfs2_xattr_entry));
+				last = NULL;
 			}
 
 			/*
