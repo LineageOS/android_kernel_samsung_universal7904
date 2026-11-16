@@ -4787,6 +4787,22 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 	 * The first inode we look at is the journal inode.  Don't try
 	 * root first: it may be modified in the journal!
 	 */
+	/* m20 bring-up: on the force_ro eMMC a dirty journal cannot be
+	 * replayed; mount without it (like -o noload) so /efs stays readable.
+	 */
+	if (sb_rdonly(sb) && bdev_read_only(sb->s_bdev) &&
+	    ext4_has_feature_journal(sb) &&
+	    ext4_has_feature_journal_needs_recovery(sb) &&
+	    !test_opt(sb, NOLOAD)) {
+		ext4_msg(sb, KERN_WARNING,
+			 "m20: read-only device, skipping journal recovery");
+		clear_opt2(sb, EXPLICIT_JOURNAL_CHECKSUM);
+		sbi->s_commit_interval = JBD2_DEFAULT_MAX_COMMIT_AGE * HZ;
+		sbi->s_mount_opt = (sbi->s_mount_opt & ~EXT4_MOUNT_DATA_FLAGS) |
+				   (sbi->s_def_mount_opt & EXT4_MOUNT_DATA_FLAGS);
+		set_opt(sb, NOLOAD);
+	}
+
 	if (!test_opt(sb, NOLOAD) && ext4_has_feature_journal(sb)) {
 		err = ext4_load_journal(sb, es, journal_devnum);
 		if (err)

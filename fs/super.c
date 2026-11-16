@@ -1409,6 +1409,20 @@ struct dentry *mount_bdev(struct file_system_type *fs_type,
 		mode |= FMODE_WRITE;
 
 	bdev = blkdev_get_by_path(dev_name, mode, fs_type);
+	/* m20 bring-up: the eMMC is forced read-only (mmcblk.force_ro), so
+	 * fall back to a read-only mount instead of failing; vendor fstab
+	 * asks for rw and the TEE needs to read /efs.
+	 */
+	if ((PTR_ERR_OR_ZERO(bdev) == -EACCES || PTR_ERR_OR_ZERO(bdev) == -EROFS) &&
+	    (mode & FMODE_WRITE)) {
+		mode &= ~FMODE_WRITE;
+		bdev = blkdev_get_by_path(dev_name, mode, fs_type);
+		if (!IS_ERR(bdev)) {
+			flags |= SB_RDONLY;
+			pr_warn("m20: %s is read-only, mounting %s read-only\n",
+				dev_name, fs_type->name);
+		}
+	}
 	if (IS_ERR(bdev))
 		return ERR_CAST(bdev);
 
