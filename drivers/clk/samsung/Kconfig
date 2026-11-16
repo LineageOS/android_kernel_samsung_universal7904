@@ -10,6 +10,14 @@ config EXYNOS_ARM64_COMMON_CLK
 	bool "Samsung Exynos ARMv8-family clock controller support" if COMPILE_TEST
 	depends on COMMON_CLK_SAMSUNG
 
+config EXYNOS7885_COMMON_CLK
+	bool "Exynos7885/7904 console and storage clocks" if COMPILE_TEST
+	depends on EXYNOS_ARM64_COMMON_CLK
+	default y if ARCH_EXYNOS
+	help
+	  Register the Exynos7885/7904 UART0 and embedded MMC clock paths.
+	  Shared PLLs and rate selection retain their firmware configuration.
+
 config EXYNOS_AUDSS_CLK_CON
 	tristate "Samsung Exynos AUDSS clock controller support"
 	depends on COMMON_CLK_SAMSUNG
@@ -41,3 +49,9 @@ config S3C2412_COMMON_CLK
 config S3C2443_COMMON_CLK
 	bool "Samsung S3C2443 clock controller support" if COMPILE_TEST
 	select COMMON_CLK_SAMSUNG
+
+config EXYNOS7885_CAMERA_CLK
+	bool "Exynos7885 CAM and ISP domain clocks"
+	depends on EXYNOS7885_COMMON_CLK && PM && PM_GENERIC_DOMAINS
+	help
+	  Runtime-power-managed Q-channel gates for the M20 camera variant.
