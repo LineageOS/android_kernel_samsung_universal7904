@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Samsung 4.4 exynos7885-pm-domains.dtsi:18-25 (CAL ID 0xb1380000).
+ * The SoC-specific compatible replaces the opaque CAL ID. Use the shared PMU
+ * syscon, not a second independent PMU mapping. Audio/CP firmware is not enabled.
+ */
+
+/ {
+	pd_dispaud: power-domain@11c84020 {
+		compatible = "samsung,exynos7885-dispaud-pd";
+		reg = <0x0 0x11c84020 0x0 0x20>;
+		#power-domain-cells = <0>;
+		samsung,pmu = <&pmu_system_controller>;
+		need_smc = <0x148f0000>;
+		status = "disabled";
+	};
+};
+
+/ {
+	/* 4.4 exynos7885-pm-domains.dtsi: pd-g3d, CAL ID 0xb1380004. */
+	pd_g3d: power-domain@11c840a0 {
+		compatible = "samsung,exynos7885-g3d-pd";
+		reg = <0x0 0x11c840a0 0x0 0x20>;
+		#power-domain-cells = <0>;
+		samsung,pmu = <&pmu_system_controller>;
+		status = "disabled";
+	};
+};

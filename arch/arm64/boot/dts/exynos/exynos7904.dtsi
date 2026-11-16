@@ -1,0 +1,882 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Samsung Exynos 7904 (universal7904) SoC minimal device tree.
+ *
+ * Addresses are taken from the Samsung 4.4 tree (exynos7885.dtsi, which the
+ * m20lte 4.4 kernel uses). They are NOT yet verified against a datasheet.
+ * UART0/MMC clocks and FSYS/TOP pin banks are ported from the vendor CAL and
+ * pinctrl data. Shared clock rates remain as configured by the bootloader.
+ */
+
+#include <dt-bindings/clock/exynos7885.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/sysmmu/sysmmu.h>
+
+#include "exynos7904-pinctrl.dtsi"
+#include "exynos7904-pm-domains.dtsi"
+
+/ {
+	compatible = "samsung,exynos7904", "samsung,exynos7885";
+	interrupt-parent = <&gic>;
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	/*
+	 * ALIVE pinctrl (4.4 exynos7885.dtsi lines 600-614). Only the gpa2 bank is
+	 * described; it carries the S2MPU08 IRQ (s2mpu08,irq-gpio = <&gpa2 0 0>).
+	 */
+	pinctrl_0: pinctrl@11CB0000 {
+		compatible = "samsung,exynos7885-pinctrl";
+		reg = <0x0 0x11CB0000 0x0 0x1000>;
+		interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>, <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>, <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>, <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>, <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>, <GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 10 IRQ_TYPE_LEVEL_HIGH>, <GIC_SPI 11 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>, <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>, <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH>;
+
+		gpa0: gpa0 {
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			#address-cells = <0>;
+		};
+
+		gpa1: gpa1 {
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			#address-cells = <0>;
+		};
+
+		/* Touch attention (IRQ) line, 4.4 exynos7904-m20lte_common.dtsi 652-657. */
+		attn_irq: attn-irq {
+			samsung,pins = "gpa0-0";
+			samsung,pin-function = <0xf>;
+			samsung,pin-pud = <0>;
+			samsung,pin-drv = <0>;
+		};
+
+		gpa2: gpa2 {
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			#address-cells = <0>;
+		};
+
+		wakeup-interrupt-controller {
+			compatible = "samsung,exynos7-wakeup-eint";
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SPI 16 IRQ_TYPE_LEVEL_HIGH>;
+			samsung,eint-flt-conf;
+		};
+	};
+
+	chipid@10000000 {
+		compatible = "samsung,exynos7885-chipid";
+		reg = <0 0x10000000 0 0x100>;
+	};
+
+	/* R4/M4 mailboxes and PMU resources from exynos7885.dtsi. */
+	scsc_wifibt: wifi@120c0000 {
+		compatible = "samsung,scsc_wifibt";
+		reg = <0 0x120c0000 0 0x180>, <0 0x120e0000 0 0x180>;
+		interrupts = <GIC_SPI 57 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 286 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "MBOX", "ALIVE", "WDOG";
+		samsung,syscon-phandle = <&pmu_system_controller>;
+		status = "disabled";
+	};
+
+	aliases {
+		serial0 = &serial_0;
+		i2c0 = &i2c_0;
+		i2c1 = &i2c_1;
+		/* The amp appends this bus in hex to ALSA stream names: -b-34. */
+		i2c11 = &i2c_3;
+		pinctrl1 = &pinctrl_1;
+		pinctrl2 = &pinctrl_2;
+		pinctrl3 = &pinctrl_3;
+		mmc0 = &dwmmc_0;
+		/* the display driver finds its blocks by alias (dpp ids, "dsim0", "decon0") */
+		dpp0 = &idma_g0;
+		dpp1 = &idma_g1;
+		dpp2 = &idma_vg0;
+		dpp3 = &idma_gf;
+		dsim0 = &dsim_0;
+		decon0 = &decon_f;
+	};
+
+	cpus {
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0 0x000>;
+			enable-method = "psci";
+		};
+
+		cpu1: cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0 0x001>;
+			enable-method = "psci";
+		};
+
+		cpu2: cpu@2 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0 0x002>;
+			enable-method = "psci";
+		};
+
+		cpu3: cpu@3 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0 0x003>;
+			enable-method = "psci";
+		};
+
+		cpu4: cpu@4 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0 0x004>;
+			enable-method = "psci";
+		};
+
+		cpu5: cpu@5 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0 0x005>;
+			enable-method = "psci";
+		};
+
+		cpu6: cpu@100 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a73", "arm,armv8";
+			reg = <0x0 0x100>;
+			enable-method = "psci";
+		};
+
+		cpu7: cpu@101 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a73", "arm,armv8";
+			reg = <0x0 0x101>;
+			enable-method = "psci";
+		};
+	};
+
+	/* Trustonic secure-world notification IRQ from Samsung's 4.4 DT. */
+	tee {
+		compatible = "samsung,exynos-tee";
+		interrupts = <GIC_SPI 223 IRQ_TYPE_EDGE_RISING>;
+	};
+
+	psci {
+		compatible = "arm,psci-1.0";
+		method = "smc";
+		cpu_suspend = <0xc4000001>;
+		cpu_off = <0x84000002>;
+		cpu_on = <0xc4000003>;
+	};
+
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 11 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 10 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>;
+		clock-frequency = <26000000>;
+	};
+
+	/* CMUCAL SFR_BLOCK bases and sizes: CMU, PERI, FSYS. */
+	clock: clock-controller@12060000 {
+		compatible = "samsung,exynos7885-clock";
+		reg = <0x0 0x12060000 0x0 0x8000>,
+		      <0x0 0x10010000 0x0 0x8000>,
+		      <0x0 0x13400000 0x0 0x8000>,
+		      <0x0 0x11C00000 0x0 0x8000>,
+		      <0x0 0x14800000 0x0 0x8000>,
+		      <0x0 0x12000000 0x0 0x8000>;
+		reg-names = "cmu", "peri", "fsys", "apm", "dispaud", "core";
+		#clock-cells = <1>;
+	};
+
+	/*
+	 * BTS has no node/scenario properties in the vendor exynos7885.dtsi
+	 * or exynos7904-m20lte_common.dtsi. This is a new resource wrapper
+	 * for the fixed bases in 4.4 drivers/bts/cal_bts7885.h:17-31.
+	 * Sizes: bts-exynos7885.c:973,983-984; policy remains in C tables.
+	 * Keep disabled: Samsung MIF/INT devfreq votes are not available,
+	 * and register access/power-state handling is not hardware-tested.
+	 */
+	bts: bts@12460000 {
+		compatible = "samsung,exynos7885-bts";
+		reg = <0x0 0x12460000 0x0 0x800>, /* G3D */
+		      <0x0 0x124a0000 0x0 0x800>, /* MFCMSCL */
+		      <0x0 0x12450000 0x0 0x800>, /* FSYS */
+		      <0x0 0x12470000 0x0 0x800>, /* GNSS */
+		      <0x0 0x12480000 0x0 0x800>, /* ISP0 */
+		      <0x0 0x12490000 0x0 0x800>, /* ISP1 */
+		      <0x0 0x124c0000 0x0 0x800>, /* WLBT */
+		      <0x0 0x124b0000 0x0 0x800>, /* CP */
+		      <0x0 0x12420000 0x0 0x800>, /* CAM */
+		      <0x0 0x12440000 0x0 0x800>, /* DPU */
+		      <0x0 0x12400000 0x0 0x800>, /* ABOX */
+		      <0x0 0x10480000 0x0 0x800>, /* CPU_DMC0 */
+		      <0x0 0x10580000 0x0 0x800>, /* CPU_DMC1 */
+		      <0x0 0x10400000 0x0 0x1000>, /* DREX0 */
+		      <0x0 0x10500000 0x0 0x1000>; /* DREX1 */
+		reg-names = "g3d", "mfcmscl", "fsys", "gnss", "isp0", "isp1",
+			    "wlbt", "cp", "cam", "dpu", "abox", "cpu_dmc0",
+			    "cpu_dmc1", "drex0", "drex1";
+		status = "disabled";
+	};
+
+	/*
+	 * Display-only SYSMMU, 4.4 exynos7885.dtsi:1375-1393.
+	 * The DISPAUD gate and genpd now exist. Keep disabled until the DPP
+	 * and DECON nodes are integrated with iommus = <&sysmmu_dpu>.
+	 * The display bus dma-window (1228-1236) belongs to this sole provider.
+	 */
+	sysmmu_dpu: sysmmu@148c0000 {
+		compatible = "samsung,exynos7885-sysmmu";
+		reg = <0x0 0x148c0000 0x0 0x9000>;
+		interrupts = <GIC_SPI 128 IRQ_TYPE_NONE>,
+			     <GIC_SPI 127 IRQ_TYPE_NONE>;
+		qos = <15>;
+		clock-names = "aclk";
+		clocks = <&clock GATE_SMMU_DPU>;
+		power-domains = <&pd_dispaud>;
+		port-name = "DPU (GF, G0, G1, VG)";
+		sysmmu,secure-irq;
+		sysmmu,secure_base = <0x148d0000>;
+		sysmmu,tlb_property =
+			<(SYSMMU_PORT_PREFETCH_PREDICTION_READ(0x0) | SYSMMU_BL1) SYSMMU_NOID>,
+			<(SYSMMU_PORT_PREFETCH_PREDICTION_READ(0x1) | SYSMMU_BL1) SYSMMU_ID_MASK(0x1, 0xffff)>,
+			<(SYSMMU_PORT_PREFETCH_PREDICTION_READ(0x1) | SYSMMU_BL1) SYSMMU_ID_MASK(0x0, 0xffff)>,
+			<(SYSMMU_PORT_PREFETCH_PREDICTION_READ(0x1) | SYSMMU_BL1) SYSMMU_ID_MASK(0x2, 0xffff)>,
+			<(SYSMMU_PORT_PREFETCH_PREDICTION_READ(0x1) | SYSMMU_BL1) SYSMMU_ID_MASK(0x6, 0xffff)>,
+			<(SYSMMU_PORT_PREFETCH_PREDICTION_READ(0x1) | SYSMMU_BL1) SYSMMU_ID_MASK(0x8, 0xffff)>;
+		dma-window = <0x10000000 0xefff0000>;
+		#iommu-cells = <0>;
+		status = "disabled";
+	};
+
+	gic: interrupt-controller@12301000 {
+		compatible = "arm,cortex-a15-gic";
+		#interrupt-cells = <3>;
+		#address-cells = <0>;
+		interrupt-controller;
+		reg = <0x0 0x12301000 0x0 0x1000>,
+		      <0x0 0x12302000 0x0 0x1000>,
+		      <0x0 0x12304000 0x0 0x2000>,
+		      <0x0 0x12306000 0x0 0x2000>;
+		interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_HIGH)>;
+	};
+
+	/* Vendor SMU is a secure-firmware service, not a separate MMIO block. */
+	smu_0: smu {
+		compatible = "samsung,exynos-smu";
+	};
+
+	/* Keep dwmmc0 in the platform name: Android's fstab uses it verbatim. */
+	dwmmc_0: dwmmc0@13500000 {
+		compatible = "samsung,exynos-dw-mshc";
+		reg = <0x0 0x13500000 0x0 0x2000>,
+		      <0x0 0x13508000 0x0 0x200>;
+		reg-names = "dw_mmc", "cmdq_mem";
+		interrupts = <GIC_SPI 146 IRQ_TYPE_LEVEL_HIGH>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		/*
+		 * 5.10 enables biu/ciu, not the vendor's ciu_gate. The compound
+		 * gate enables both I_ACLK and SDCLKIN; ciu reads the actual
+		 * downstream user-mux rate, including firmware's mux selection.
+		 */
+		clocks = <&clock GATE_MMC_EMBD>,
+			 <&clock UMUX_CLKCMU_FSYS_MMC_EMBD>;
+		clock-names = "biu", "ciu";
+		mmc-exynos-smu = <&smu_0>;
+		status = "disabled";
+	};
+
+	/*
+	 * Vendor SPEEDY bus, not an Exynos HSI2C controller. Its 4.4
+	 * gate ID is known, but the APM gate, ALIVE pinctrl and SPEEDY/
+	 * ACPM transport drivers have not been ported. Do not enable.
+	 */
+	speedy: i2c@11ce0000 {
+		compatible = "samsung,exynos-speedy";
+		reg = <0x0 0x11ce0000 0x0 0x2000>;
+		interrupts = <GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		clocks = <&clock GATE_SPEEDY_APM>;
+		clock-names = "gate_speedy";
+		status = "disabled";
+	};
+
+	serial_0: serial@13800000 {
+		compatible = "samsung,exynos4210-uart";
+		reg = <0x0 0x13800000 0x0 0x100>;
+		interrupts = <GIC_SPI 246 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clock GATE_UART0>, <&clock UMUX_CLKCMU_PERI_UART_0>;
+		clock-names = "uart", "clk_uart_baud0";
+		pinctrl-names = "default";
+		pinctrl-0 = <&uart0_bus>;
+		samsung,fifo-size = <64>;
+		status = "disabled";
+	};
+
+	/*
+	 * ACPM (APM firmware IPC). Values copied from the 4.4 tree:
+	 * exynos7885.dtsi lines 1815-1822 (acpm) and 1873-1886 (acpm_ipc).
+	 * Disabled until the S2MPU08 path is enabled on top of it.
+	 */
+	/* HS-I2C 4 (camera PMIC): 4.4 exynos7885.dtsi lines 892-909. */
+	hsi2c_4: hsi2c@13920000 {
+		compatible = "samsung,exynos5-hsi2c";
+		samsung,check-transdone-int;
+		reg = <0x0 0x13920000 0x0 0x1000>;
+		interrupts = <GIC_SPI 267 IRQ_TYPE_LEVEL_HIGH>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&hs_i2c4_bus>;
+		/* USI0 CH0 and CH1 share the existing HSI2C0 gate/mode register. */
+		clocks = <&clock GATE_HSI2C0>;
+		clock-names = "hsi2c";
+		samsung,usi-i-mode = <0x10032000>;
+		status = "disabled";
+	};
+
+	/*
+	 * HS-I2C 5 (touch bus). Values from 4.4 exynos7885.dtsi lines 912-930.
+	 * The 4.4 node lists GATE_HSI2C0 twice (rate and gate); 5.10 takes one "hsi2c" clock.
+	 */
+	hsi2c_5: hsi2c@13930000 {
+		compatible = "samsung,exynos5-hsi2c";
+		samsung,check-transdone-int;
+		reg = <0x0 0x13930000 0x0 0x1000>;
+		interrupts = <GIC_SPI 268 IRQ_TYPE_LEVEL_HIGH>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&hs_i2c5_bus>;
+		clocks = <&clock GATE_HSI2C0>;
+		clock-names = "hsi2c";
+		samsung,usi-i-mode = <0x10032000>;
+		status = "disabled";
+	};
+
+	/* PMU: syscon for PHY isolation etc. (4.4 exynos7885.dtsi 1289-1292) */
+	pmu_system_controller: system-controller@11c80000 {
+		compatible = "samsung,exynos7885-pmu", "syscon";
+		reg = <0x0 0x11c80000 0x0 0x10000>;
+	};
+
+	/* DSIM DPHY (4.4 exynos7885.dtsi 1299-1309); reset is controlled by DSIM */
+	mipi_phy_dsim: phy_m4s4_dsi {
+		compatible = "samsung,mipi-phy-dsim";
+		samsung,pmu-syscon = <&pmu_system_controller>;
+		isolation = <0x678>;
+		#phy-cells = <1>;
+	};
+
+	acpm_ipc: acpm_ipc {
+		compatible = "samsung,exynos-acpm-ipc";
+		#address-cells = <2>;
+		#size-cells = <1>;
+		interrupts = <GIC_SPI 22 IRQ_TYPE_LEVEL_HIGH>;
+		reg = <0x0 0x11C40000 0x0 0x1000>,	/* AP2APM MAILBOX */
+		      <0x0 0x02052000 0x0 0x1B000>;	/* APM SRAM */
+		initdata-base = <0x4B80>;
+		num-timestamps = <32>;
+		debug-log-level = <0>;
+		logging-period = <500>;
+		dump-base = <0x02052000>;
+		dump-size = <0x1B000>;
+		status = "disabled";
+	};
+
+	acpm: acpm {
+		compatible = "samsung,exynos-acpm";
+		#address-cells = <2>;
+		#size-cells = <1>;
+		reg = <0x0 0x11C88000 0x0 0x1000>;	/* PMU_ALIVE */
+		acpm-ipc-channel = <4>;
+		fvmap_offset = <0x6C00>;
+		status = "disabled";
+	};
+
+	/* Plain I2C, not HSI2C: 4.4 exynos7885.dtsi:1006-1032.
+	 * Upstream i2c-s3c2410 takes one "i2c" clock, not rate_i2c/gate_i2c. */
+	i2c_0: i2c@13830000 {
+		compatible = "samsung,s3c2440-i2c";
+		reg = <0x0 0x13830000 0x0 0x100>;
+		interrupts = <GIC_SPI 248 IRQ_TYPE_NONE>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c0_bus>;
+		clocks = <&clock GATE_I2C0>;
+		clock-names = "i2c";
+		status = "disabled";
+	};
+
+	i2c_1: i2c@13840000 {
+		compatible = "samsung,s3c2440-i2c";
+		reg = <0x0 0x13840000 0x0 0x100>;
+		interrupts = <GIC_SPI 249 IRQ_TYPE_NONE>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c1_bus>;
+		clocks = <&clock GATE_I2C1>;
+		clock-names = "i2c";
+		status = "disabled";
+	};
+
+	/* I2C_4: backlight IC bus, 4.4 exynos7885.dtsi:1063-1074. */
+	i2c_4: i2c@13870000 {
+		compatible = "samsung,s3c2440-i2c";
+		reg = <0x0 0x13870000 0x0 0x100>;
+		interrupts = <GIC_SPI 252 IRQ_TYPE_NONE>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c4_bus>;
+		clocks = <&clock GATE_I2C4>;
+		clock-names = "i2c";
+		status = "disabled";
+	};
+
+	/* I2C_5/I2C_6: sensor buses, 4.4 exynos7885.dtsi:1077-1100. */
+	i2c_5: i2c@13880000 {
+		compatible = "samsung,s3c2440-i2c";
+		reg = <0x0 0x13880000 0x0 0x100>;
+		interrupts = <GIC_SPI 253 IRQ_TYPE_NONE>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c5_bus>;
+		clocks = <&clock GATE_I2C5>;
+		clock-names = "i2c";
+		status = "disabled";
+	};
+
+	i2c_6: i2c@13890000 {
+		compatible = "samsung,s3c2440-i2c";
+		reg = <0x0 0x13890000 0x0 0x100>;
+		interrupts = <GIC_SPI 254 IRQ_TYPE_NONE>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c6_bus>;
+		clocks = <&clock GATE_I2C6>;
+		clock-names = "i2c";
+		status = "disabled";
+	};
+
+	/*
+	 * Display subsystem, 4.4 exynos7885.dtsi:1238-1340. Disabled here; the
+	 * board enables it in exynos7904-m20lte-decon.dts. samsung,power-domain
+	 * became power-domains, the sysmmu link is the standard iommus property.
+	 */
+	idma_g0: dpp@148b1000 {
+		compatible = "samsung,exynos7885-dpp";
+		#pb-id-cells = <3>;
+		reg = <0x0 0x14851000 0x0 0x1000>,
+		      <0x0 0x148b1000 0x0 0x1000>,
+		      <0x0 0x148b0000 0x0 0x100>;
+		interrupts = <GIC_SPI 121 IRQ_TYPE_NONE>;
+		iommus = <&sysmmu_dpu>;
+		power-domains = <&pd_dispaud>;
+		memory-region = <&fb_handover>;
+		status = "disabled";
+	};
+
+	idma_g1: dpp@148b2000 {
+		compatible = "samsung,exynos7885-dpp";
+		#pb-id-cells = <3>;
+		reg = <0x0 0x14852000 0x0 0x1000>,
+		      <0x0 0x148b2000 0x0 0x1000>;
+		interrupts = <GIC_SPI 122 IRQ_TYPE_NONE>;
+		iommus = <&sysmmu_dpu>;
+		power-domains = <&pd_dispaud>;
+		status = "disabled";
+	};
+
+	idma_gf: dpp@148b3000 {
+		compatible = "samsung,exynos7885-dpp";
+		#pb-id-cells = <3>;
+		reg = <0x0 0x14853000 0x0 0x1000>,
+		      <0x0 0x148b3000 0x0 0x1000>;
+		interrupts = <GIC_SPI 123 IRQ_TYPE_NONE>;
+		iommus = <&sysmmu_dpu>;
+		power-domains = <&pd_dispaud>;
+		status = "disabled";
+	};
+
+	idma_vg0: dpp@148b4000 {
+		compatible = "samsung,exynos7885-dpp";
+		#pb-id-cells = <3>;
+		reg = <0x0 0x14854000 0x0 0x1000>,
+		      <0x0 0x148b4000 0x0 0x1000>;
+		interrupts = <GIC_SPI 124 IRQ_TYPE_NONE>,
+			     <GIC_SPI 120 IRQ_TYPE_NONE>;
+		iommus = <&sysmmu_dpu>;
+		power-domains = <&pd_dispaud>;
+		status = "disabled";
+	};
+
+	disp_ss: disp_ss@14820000 {
+		compatible = "samsung,exynos7885-disp_ss";
+		reg = <0x0 0x14820000 0x0 0x10>;
+	};
+
+	dsim_0: dsim@14870000 {
+		compatible = "samsung,exynos7885-dsim";
+		reg = <0x0 0x14870000 0x0 0x100>;
+		interrupts = <GIC_SPI 125 IRQ_TYPE_NONE>;
+		phys = <&mipi_phy_dsim 0>;
+		phy-names = "dsim_dphy";
+		power-domains = <&pd_dispaud>;
+		status = "disabled";
+	};
+
+	decon_f: decon_f@14860000 {
+		compatible = "samsung,exynos7885-decon";
+		#pb-id-cells = <4>;
+		reg = <0x0 0x14860000 0x0 0x10000>;
+		/* under-run, frame start, frame done, extra */
+		interrupts = <GIC_SPI 115 IRQ_TYPE_NONE>,
+			     <GIC_SPI 114 IRQ_TYPE_NONE>,
+			     <GIC_SPI 113 IRQ_TYPE_NONE>,
+			     <GIC_SPI 112 IRQ_TYPE_NONE>;
+		clock-names = "aclk";
+		clocks = <&clock GATE_DPU_DECON0>;
+		pinctrl-names = "hw_te_on", "hw_te_off";
+		pinctrl-0 = <&decon_f_te_on>;
+		pinctrl-1 = <&decon_f_te_off>;
+		power-domains = <&pd_dispaud>;
+		max_win = <4>;
+		default_win = <3>;
+		default_idma = <0>;
+		psr_mode = <2>;		/* 0: video mode, 1: DP command mode, 2: MIPI command mode */
+		trig_mode = <0>;	/* 0: hw trigger, 1: sw trigger */
+		dsi_mode = <0>;		/* 0: single dsi, 1: dual dsi */
+		out_type = <0>;		/* 0: DSI, 1: eDP, 2: HDMI, 3: WB */
+		out_idx = <0>;		/* 0: DSI0 */
+		disp_freq = <0>;
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		/* EINT for TE, TE is located in TOP */
+		gpios = <&gpc0 3 0xf>;
+		status = "disabled";
+
+		/* sw te pending register: NWEINT_GPC0_PEND (GPC0_3:TE) */
+		te_eint {
+			reg = <0x0 0x139b0a38 0x0 0x4>;
+		};
+
+		cam-stat {
+			reg = <0x0 0x11c84064 0x0 0x4>;
+		};
+	};
+
+	/*
+	 * USB30DRD controller + combo PHY, 4.4 exynos7885.dtsi:1935-2010 and the
+	 * M20 overrides in exynos7904-m20lte_common.dtsi:807-885. The child must
+	 * stay named "dwc3": the init scripts use 13600000.dwc3 as the UDC name.
+	 */
+	udc: usb@13600000 {
+		compatible = "samsung,exynos-dwusb";
+		clocks = <&clock GATE_USB30DRD_HSDRD>;
+		clock-names = "hsdrd";
+		reg = <0x0 0x13600000 0x0 0x10000>;
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		status = "disabled";
+
+		usbdrd_dwc3: dwc3 {
+			compatible = "synopsys,dwc3";
+			reg = <0x0 0x13600000 0x0 0x10000>;
+			interrupts = <GIC_SPI 135 IRQ_TYPE_NONE>;
+			tx-fifo-resize = <0>;
+			adj-sof-accuracy = <0>;
+			is_not_vbus_pad = <1>;
+			enable_sprs_transfer = <1>;
+			qos_int_level = <100000 200000>;
+			phys = <&usbdrd_phy 0>, <&usbdrd_phy 1>;
+			phy-names = "usb2-phy", "usb3-phy";
+		};
+	};
+
+	usbdrd_phy: phy@135d0000 {
+		compatible = "samsung,exynos-usbdrd-phy";
+		reg = <0x0 0x135d0000 0x0 0x200>,
+		      <0x0 0x135e0000 0x0 0x1000>,
+		      <0x0 0x135f0000 0x0 0x800>;
+		clocks = <&clock GATE_USB30DRD_HSDRD>, <&clock GATE_USB30DRD_USB20>,
+			 <&clock GATE_USB30DRD_USB30_0>, <&clock GATE_USB30DRD_USB30_1>,
+			 <&clock PLL_OUT_USB>;
+		clock-names = "hsdrd", "usb20", "usb30_0", "usb30_1", "out_usb";
+		samsung,pmu-syscon = <&pmu_system_controller>;
+		pmu_mask = <0x0>;
+		pmu_offset = <0x674>;
+		pmu_offset_dp = <0x66c>;
+		#phy-cells = <1>;
+
+		phy_version = <0x300>;		/* USBDP combo PHY version */
+		phyclk_mux = "none";		/* no PHY user mux */
+		phy_refclk = "out_usb";
+		has_other_phy = <0>;
+		has_combo_phy = <1>;
+		sub_phy_version = <0x300>;
+		ip_type = <0x0>;		/* USB3DRD */
+
+		/* for PHY CAL: exactly one of the refsel properties is 1 */
+		phy_refsel_clockcore = <1>;
+		phy_refsel_ext_osc = <0>;
+		phy_refsel_xtal = <0>;
+		phy_refsel_diff_pad = <0>;
+		phy_refsel_diff_internal = <0>;
+		phy_refsel_diff_single = <0>;
+
+		use_io_for_ovc = <0>;
+		common_block_disable = <1>;
+		is_not_vbus_pad = <1>;
+		used_phy_port = <0>;
+		status = "disabled";
+	};
+
+	/* Thermal ADC: 4.4 exynos7885.dtsi:2016-2024. */
+	exynos_adc: adc@120A0000 {
+		compatible = "samsung,exynos-adc-v3";
+		reg = <0x0 0x120A0000 0x0 0x100>;
+		interrupts = <GIC_SPI 60 IRQ_TYPE_NONE>;
+		#io-channel-cells = <1>;
+		io-channel-ranges;
+		clocks = <&clock GATE_WRAP_ADC_IF_0>;
+		clock-names = "gate_adcif";
+	};
+
+	/* Samsung 4.4 Exynos7885 ABOX resources, shared by Exynos7904. */
+	sysmmu_abox: sysmmu@14a30000 {
+		compatible = "samsung,exynos7885-sysmmu";
+		reg = <0x0 0x14a30000 0x0 0x9000>;
+		interrupts = <GIC_SPI 129 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clock GATE_SMMU_ABOX>;
+		clock-names = "aclk";
+		power-domains = <&pd_dispaud>;
+		qos = <15>;
+		port-name = "ABOX";
+		#iommu-cells = <0>;
+		status = "disabled";
+	};
+
+	abox_gic: abox_gic@14af0000 {
+		compatible = "samsung,abox_gic";
+		power-domains = <&pd_dispaud>;
+		status = "disabled";
+		reg = <0x0 0x14af1000 0x0 0x1000>, <0x0 0x14af2000 0x0 0x1004>;
+		reg-names = "gicd", "gicc";
+		interrupts = <GIC_SPI 119 IRQ_TYPE_EDGE_RISING>;
+	};
+
+	abox: abox@14a50000 {
+		compatible = "samsung,abox";
+		status = "disabled";
+		reg = <0x0 0x14A50000 0x0 0x10000>, <0x0 0x14820000 0x0 0x10000>, <0x0 0x14B00000 0x0 0x28000>;
+		reg-names = "sfr", "sysreg", "sram";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		#sound-dai-cells = <1>;
+		ranges;
+		pinctrl-names = "default", "idle";
+		pinctrl-0 = <&aud_codec_mclk &aud_codec_bus &aud_fm_bus &aud_spk_bus &aud_loopback_bus >;
+		pinctrl-1 = <&aud_codec_mclk_idle &aud_codec_bus_idle	&aud_fm_bus_idle &aud_spk_bus_idle &aud_loopback_bus_idle >;
+		power-domains = <&pd_dispaud>;
+		ipc_tx_offset = <0x22000>;
+		ipc_rx_offset = <0x22300>;
+		ipc_tx_ack_offset = <0x222FC>;
+		ipc_rx_ack_offset = <0x225FC>;
+		mailbox_offset = <0x22600>;
+		abox_gic = <&abox_gic>;
+		clocks = 	<&clock PLL_OUT_AUD>, <&clock GATE_ABOX_ABOX>,
+		<&clock DOUT_CLK_ABOX_AUDIF>,
+		<&clock DOUT_CLK_ABOX_UAIF0>,<&clock DOUT_CLK_ABOX_UAIF2>,
+		<&clock DOUT_CLK_ABOX_UAIF3>,
+		<&clock GATE_UAIF0>,	<&clock GATE_UAIF2>,
+		<&clock GATE_UAIF3>;
+		clock-names = "pll", "ca7", "audif",
+			"bclk0", "bclk2",
+			"bclk3",
+			"bclk0_gate", "bclk2_gate",
+			"bclk3_gate";
+		iommus = <&sysmmu_abox>;
+		pm_qos_int = <533000 333000 0 0 0>;
+		pm_qos_aud = <1180000 800000 590000 394000 0>;
+
+		abox_rdma_0: abox_rdma@14a51000 {
+			compatible = "samsung,abox-rdma";
+			reg = <0x0 0x14A51000 0x0 0x100>;
+			abox = <&abox>;
+			id = <0>;
+			type = "normal";
+		};
+
+		abox_rdma_1: abox_rdma@14a51100 {
+			compatible = "samsung,abox-rdma";
+			reg = <0x0 0x14A51100 0x0 0x100>;
+			abox = <&abox>;
+			id = <1>;
+			type = "normal";
+		};
+
+		abox_rdma_2: abox_rdma@14a51200 {
+			compatible = "samsung,abox-rdma";
+			reg = <0x0 0x14A51200 0x0 0x100>;
+			abox = <&abox>;
+			id = <2>;
+			type = "normal";
+		};
+
+		abox_rdma_3: abox_rdma@14a51300 {
+			compatible = "samsung,abox-rdma";
+			reg = <0x0 0x14A51300 0x0 0x100>;
+			abox = <&abox>;
+			id = <3>;
+			type = "normal";
+		};
+
+		abox_rdma_4: abox_rdma@14a51400 {
+			compatible = "samsung,abox-rdma";
+			reg = <0x0 0x14A51400 0x0 0x100>;
+			abox = <&abox>;
+			id = <4>;
+			type = "call";
+		};
+
+		abox_rdma_5: abox_rdma@14a51500 {
+			compatible = "samsung,abox-rdma";
+			reg = <0x0 0x14A51500 0x0 0x100>;
+			abox = <&abox>;
+			id = <5>;
+			/*type = "compress";*/
+			type = "normal";
+		};
+
+		abox_rdma_6: abox_rdma@14a51600 {
+			compatible = "samsung,abox-rdma";
+			reg = <0x0 0x14A51600 0x0 0x100>;
+			abox = <&abox>;
+			id = <6>;
+			type = "normal";
+		};
+
+		abox_rdma_7: abox_rdma@14a51700 {
+			compatible = "samsung,abox-rdma";
+			reg = <0x0 0x14A51700 0x0 0x100>;
+			abox = <&abox>;
+			id = <7>;
+			type = "realtime";
+		};
+
+		abox_wdma_0: abox_wdma@14a52000 {
+			compatible = "samsung,abox-wdma";
+			reg = <0x0 0x14A52000 0x0 0x100>;
+			abox = <&abox>;
+			id = <0>;
+			type = "normal";
+		};
+
+		abox_wdma_1: abox_wdma@14a52100 {
+			compatible = "samsung,abox-wdma";
+			reg = <0x0 0x14A52100 0x0 0x100>;
+			abox = <&abox>;
+			id = <1>;
+			type = "normal";
+		};
+
+		abox_wdma_2: abox_wdma@14a52200 {
+			compatible = "samsung,abox-wdma";
+			reg = <0x0 0x14A52200 0x0 0x100>;
+			abox = <&abox>;
+			id = <2>;
+			type = "call";
+		};
+
+		abox_wdma_3: abox_wdma@14a52300 {
+			compatible = "samsung,abox-wdma";
+			reg = <0x0 0x14A52300 0x0 0x100>;
+			abox = <&abox>;
+			id = <3>;
+			type = "realtime";
+		};
+
+		abox_wdma_4: abox_wdma@14a52400 {
+			compatible = "samsung,abox-wdma";
+			reg = <0x0 0x14A52400 0x0 0x100>;
+			abox = <&abox>;
+			id = <4>;
+			type = "vi-sensing";
+		};
+
+		abox_debug: abox_debug {
+			compatible = "samsung,abox-debug";
+			memory-region = <&abox_rmem>;
+		};
+
+		abox_vss: abox_vss {
+			compatible = "samsung,abox-vss";
+		};
+
+		ext_bin_0: ext-bin-0 {
+			status = "okay";
+			samsung,name = "tfadsp.bin";
+			samsung,area = <1>; /* 0:SRAM, 1:DRAM, 2:VSS */
+			samsung,offset = <0x502000>;
+		};
+
+		ext_bin_1: ext-bin-1 {
+			status = "okay";
+			samsung,name = "AP_AUDIO_SLSI.bin";
+			samsung,area = <1>;
+			samsung,offset = <0x7F0000>;
+		};
+
+		ext_bin_2: ext-bin-2 {
+			status = "okay";
+			samsung,name = "APBargeIn_AUDIO_SLSI.bin";
+			samsung,area = <1>;
+			samsung,offset = <0x7EC000>;
+		};
+	};
+
+	i2c_3: i2c@13860000 {
+		compatible = "samsung,s3c2440-i2c";
+		reg = <0x0 0x13860000 0x0 0x100>;
+		interrupts = <GIC_SPI 251 IRQ_TYPE_NONE>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c3_bus>;
+		clocks = <&clock GATE_I2C3>;
+		clock-names = "i2c";
+		status = "disabled";
+	};
+
+};

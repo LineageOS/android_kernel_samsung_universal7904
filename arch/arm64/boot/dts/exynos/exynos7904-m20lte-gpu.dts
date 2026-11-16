@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * M20 with the DECON display variant plus the Mali-G71 (Bifrost r26p0) node.
+ * Experimental: G3D power domain and the GPU are enabled only here, so the
+ * other images never touch the G3D block. DVFS/RT_PM remain off; CCF retains
+ * the firmware rate at probe. TODO(5.10 port): validate on hardware and port
+ * OPP/ASV voltage policy before allowing frequency increases. Never flashed.
+ *
+ * Values from 4.4 exynos7885-mali_common.dtsi.
+ */
+#include "exynos7904-m20lte-decon.dts"
+#include "exynos7904-g3d.dtsi"
+
+/ {
+	mali: mali@11500000 {
+		compatible = "samsung,exynos7904-mali", "arm,mali";
+		/* S2MPU08 BUCK5, vdd_g3d in the 4.4 M20 board DT and this tree. */
+		vdd-supply = <&b5_reg>;
+		clocks = <&cmu_g3d GATE_AGPU_G3D>,
+			 <&cmu_g3d PLL_OUT_G3D>,
+			 <&cmu_g3d MOUT_G3D_BUSD>,
+			 <&cmu_g3d MOUT_G3D_SWITCH_USER>,
+			 <&clock OSCCLK>,
+			 <&cmu_g3d GATE_G3D_CMU>,
+			 <&cmu_g3d GATE_G3D_SYSREG>,
+			 <&cmu_g3d GATE_G3D_LHM_SFR>,
+			 <&cmu_g3d GATE_G3D_LHM_P>,
+			 <&cmu_g3d GATE_G3D_LHS_D>,
+			 <&cmu_g3d GATE_G3D_LHS_SFR>;
+		clock-names = "g3d", "pll", "busd", "switch", "osc", "cmu",
+			      "sysreg", "lhm-sfr", "lhm-p", "lhs-d", "lhs-sfr";
+		reg = <0x0 0x11500000 0x0 0x5000>;
+		interrupts = <GIC_SPI 159 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 160 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 158 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "JOB", "MMU", "GPU";
+		power-domains = <&pd_g3d>;
+		g3d_cmu_cal_id = <ACPM_DVFS_G3D>;
+		g3d_genpd_name = "pd-g3d";
+		#cooling-cells = <2>;
+		governor = "interactive";
+		gpu_sustainable_info = <0 0 0 0 0>;
+		gpu_pmqos_cpu_cluster_num = <2>;
+		gpu_pmu_status_reg_offset = <0x40A4>;
+		gpu_pmu_status_local_pwr_mask = <0xF>;
+		gpu_min_clock = <343000>;
+		gpu_dvfs_start_clock = <343000>;
+		gpu_dvfs_bl_config_clock = <343000>;
+		gpu_default_voltage = <800000>;
+		gpu_cold_minimum_vol = <0>;
+		gpu_voltage_offset_margin = <37500>;
+		gpu_tmu_control = <1>;
+		gpu_power_coeff = <625>;
+		gpu_dvfs_time_interval = <5>;
+		gpu_default_wakeup_lock = <1>;
+		gpu_dynamic_abb = <0>;
+		gpu_early_clk_gating = <0>;
+		gpu_dvs = <0>;
+		gpu_inter_frame_pm = <0>;
+		gpu_perf_gathering = <0>;
+		gpu_runtime_pm_delay_time = <50>;
+		gpu_dvfs_polling_time = <30>;
+		gpu_pmqos_int_disable = <0>;
+		gpu_pmqos_mif_max_clock = <1794000>;
+		gpu_pmqos_mif_max_clock_base = <545000>;
+		gpu_cl_dvfs_start_base = <343000>;
+		gpu_debug_level = <3>;
+		gpu_trace_level = <8>;
+		gpu_mo_min_clock = <676000>;
+		gpu_boost_gpu_min_lock = <0>;
+		gpu_boost_egl_min_lock = <1248000>;
+		gpu_bts_support = <0>;
+		gpu_asv_cali_lock_val = <0>;
+		gpu_set_pmu_duration_reg = <0>;
+		gpu_set_pmu_duration_val = <0>;
+	};
+};
+
+&pd_g3d {
+	status = "okay";
+};
+
+&cmu_g3d {
+	status = "okay";
+};

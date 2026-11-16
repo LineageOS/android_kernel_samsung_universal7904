@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * M20 with the vendor DECON/DSIM/DPP display stack instead of the
+ * bootloader-provided simple-framebuffer. Same kernel image, separate dt.img.
+ *
+ * The splash buffer is handed over to DPP, which releases it to the page
+ * allocator once DECON has switched to its own buffer (4.4 behaviour), so it
+ * must stay in the linear map: drop no-map and give it the handover compatible.
+ */
+#include "exynos7904-m20lte.dts"
+
+&framebuffer0 {
+	status = "disabled";
+};
+
+&fb_handover {
+	/delete-property/ no-map;
+	compatible = "exynos,dpu_fb_handover";
+};
+
+&sysmmu_dpu {
+	status = "okay";
+};
+
+&idma_g0 {
+	status = "okay";
+};
+
+&idma_g1 {
+	status = "okay";
+};
+
+&idma_gf {
+	status = "okay";
+};
+
+&idma_vg0 {
+	status = "okay";
+};
+
+&dsim_0 {
+	status = "okay";
+};
+
+&decon_f {
+	status = "okay";
+};
+
+&i2c_4 {
+	status = "okay";
+};

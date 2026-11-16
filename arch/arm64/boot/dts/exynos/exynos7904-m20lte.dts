@@ -1,0 +1,1045 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Samsung Galaxy M20 (SM-M205F/FN, m20lte) minimal bring-up device tree.
+ *
+ * Experimental: console, GIC, timer and UART with vendor-derived clocks and
+ * pinctrl. eMMC uses firmware CMU rates and vendor SDR timings; HS200/HS400
+ * and hardware encryption are not enabled. CP interfaces are described but disabled by default.
+ */
+
+/dts-v1/;
+#include "exynos7904.dtsi"
+#include "battery_data_m20lte_common.dtsi"
+#include "exynos7904-m20lte-modem.dtsi"
+
+/ {
+	model = "Samsung Galaxy M20 (m20lte) bring-up on Exynos 7904";
+	/* Stock sboot strings first, then our own. */
+	compatible = "samsung, M20 SWA OPEN rev03", "samsung,Universal7904", "samsung,m20lte", "samsung,exynos7904";
+
+	/*
+	 * Samsung dtbhtool reads these root properties to pick the right DTB.
+	 * Values copied from the 4.4 M20 board DTS (SWA OPEN rev03).
+	 */
+	model_info-chip = <7885>;
+	model_info-platform = "android";
+	model_info-subtype = "samsung";
+	model_info-hw_rev = <4>;
+	model_info-hw_rev_end = <255>;
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		/*
+		 * The stock DTB carries its bootargs in chosen (it ships no boot.img cmdline),
+		 * so keep the same arguments here in case the bootloader does not inject
+		 * the boot.img cmdline into the DTB.
+		 */
+		/*
+		 * Same placeholder as the stock DTB. The stock ramdisk is 1.46 MB, larger than
+		 * this 1 MB window, so sboot must rewrite these at boot. Verify on device.
+		 */
+		linux,initrd-start = <0x84000000>;
+		linux,initrd-end = <0x840fffff>;
+		bootargs = "console=tty0 console=ttySAC0,115200 earlycon=exynos4210,0x13800000 clk_ignore_unused regulator_ignore_unused androidboot.hardware=samsungexynos7885 androidboot.selinux=permissive panic=5";
+	};
+
+	/*
+	 * RAM layout copied from the 4.4 m20lte DTS (exynos7904-m20lte_common.dtsi).
+	 * Verify against the bootloader before trusting it.
+	 */
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0x3da00000>;
+	};
+
+	memory@c0000000 {
+		device_type = "memory";
+		reg = <0x0 0xc0000000 0x0 0x40000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		wlbt_memory: wifi@e9000000 {
+			compatible = "exynos,wifibt_if";
+			reg = <0 0xe9000000 0 0x400000>;
+			no-map;
+		};
+
+		/* Dynamically allocated, as in exynos7885-rmem.dtsi. */
+		btabox_memory: btabox {
+			compatible = "exynos,btabox_rmem";
+			size = <0 0x400000>;
+			alignment = <0 0x400000>;
+			alloc-ranges = <0 0x80000000 0 0x80000000>;
+			no-map;
+		};
+
+		/*
+		 * Display handover buffer used by the 4.4 DPU driver (exynos,dpu_fb_handover).
+		 * Kept no-map so the kernel never reuses the splash image.
+		 */
+		fb_handover: framebuffer@ec000000 {
+			reg = <0x0 0xec000000 0x0 0x1400000>;
+			no-map;
+		};
+
+		/*
+		 * exynos-snapshot (ESS) area, from the 4.4 tree (drivers/trace/exynos-ss.c).
+		 * Base 0x86000000 comes from the 4.4 bootarg ess_setup=0x86000000.
+		 * Items are laid out in table order (MINIMIZED_MODE + SMALL_DEBUG_MODE):
+		 *   log_kevents header 2 MB at 0x86000000 (kevents 1 MB, header alloc 2 MB)
+		 *   log_kernel 2 MB at 0x86200000
+		 *   log_pstore 32 KB at 0x86400000
+		 * Keep the log area no-map so nothing else writes into it.
+		 */
+		ess_log: ess-log@86000000 {
+			reg = <0x0 0x86000000 0x0 0x400000>;
+			no-map;
+		};
+
+		ess_pstore: ess-pstore@86400000 {
+			reg = <0x0 0x86400000 0x0 0x8000>;
+			no-map;
+		};
+	};
+
+	/* pstore: panics and oopses land in ess_pstore; readable from /sys/fs/pstore. */
+	ramoops {
+		compatible = "ramoops";
+		memory-region = <&ess_pstore>;
+		record-size = <0x4000>;
+		console-size = <0x2000>;
+		pmsg-size = <0x2000>;
+		ftrace-size = <0>;
+		dump-oops;
+	};
+
+	/* Bootloader-provided framebuffer: panel 1080x2340, 32 bpp, single buffer. */
+	framebuffer0: framebuffer@ec000000 {
+		compatible = "simple-framebuffer";
+		reg = <0x0 0xec000000 0x0 0x1400000>;
+		width = <1080>;
+		height = <2340>;
+		stride = <4320>;
+		format = "a8b8g8r8";
+		status = "okay";
+	};
+};
+
+/* The complete DISPAUD provider retains the splash without any consumers. */
+&pd_dispaud {
+	status = "okay";
+};
+
+&serial_0 {
+	status = "okay";
+};
+
+&dwmmc_0 {
+	status = "okay";
+	bus-width = <8>;
+	non-removable;
+	cap-mmc-highspeed;
+	/* 4.4 ciu_clkin[MMC_TIMING_MMC_HS] = 50 MHz. */
+	max-frequency = <50000000>;
+	fifo-depth = <0x40>;
+	card-detect-delay = <200>;
+	samsung,dw-mshc-ciu-div = <3>;
+	/* Vendor order: divider, fine drive, drive, sample (not upstream's 2). */
+	samsung,dw-mshc-sdr-timing = <3 0 4 0>;
+	samsung,dw-mshc-ddr-timing = <3 0 4 2>;
+
+	/*
+	 * 4.4 also advertises HS200/HS400/ES. Deliberately keep those and DDR
+	 * off until rate changes, fine tuning and delay-line setup are ported.
+	 */
+	pinctrl-names = "default";
+	pinctrl-0 = <&sd0_clk &sd0_cmd &sd0_rdqs &sd0_bus8>;
+};
+
+/*
+ * The PMIC is on SPEEDY, not HSI2C. Keep disabled until SPEEDY/ACPM,
+ * GATE_SPEEDY_APM and ALIVE pinctrl/IRQ support are available. Vendor
+ * code uses gpa2-0 as a level-low IRQ via s2mpu08,irq-gpio; the legacy
+ * interrupts = <2 0 0> property is not the IRQ used by that driver.
+ * Do not invent a GIC IRQ or use an unrelated GPIO bank in its place.
+ */
+&speedy {
+	s2mpu08: pmic@0 {
+		compatible = "samsung,s2mpu08-pmic", "samsung,s2mpu08mfd";
+		reg = <0x00>;
+		i2c-speedy-address;
+		acpm-ipc-channel = <2>;
+		s2mpu08,irq-gpio = <&gpa2 0 0>;
+		wakeup-source;
+		/* RTC WTSR/SMPL: 4.4 exynos7904-m20lte_common.dtsi lines 183-187 */
+		wtsr_en = "enabled";
+		smpl_en = "enabled";
+		wtsr_timer_val = <3>;
+		smpl_timer_val = <0>;
+		check_jigon = <0>;
+		status = "okay";
+
+		regulators {
+			b1_reg: BUCK1 {
+				regulator-name = "vdd_mif";
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1100000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <2>;
+			};
+
+			b2_reg: BUCK2 {
+				regulator-name = "vdd_cpucl0";
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			b3_reg: BUCK3 {
+				regulator-name = "vdd_cpucl1_2";
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			b4_reg: BUCK4 {
+				regulator-name = "vdd_int";
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1200000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <2>;
+			};
+
+			b5_reg: BUCK5 {
+				regulator-name = "vdd_g3d";
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			b6_reg: BUCK6 {
+				regulator-name = "vdd2_mem";
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <3>;
+			};
+
+			b7_reg: BUCK7 {
+				regulator-name = "vdd_lldo";
+				regulator-min-microvolt = <1200000>;
+				regulator-max-microvolt = <1500000>;
+				regulator-always-on;
+				regulator-boot-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <3>;
+			};
+
+			b8_reg: BUCK8 {
+				regulator-name = "vdd_mldo";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <2100000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <3>;
+			};
+
+			l1_reg: LDO1 {
+				regulator-name = "vdd_ldo1";
+				regulator-min-microvolt = <700000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <3>;
+			};
+
+			l2_reg: LDO2 {
+				regulator-name = "vqmmc";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <3375000>;
+				regulator-ramp-delay = <12000>;
+			};
+
+			l3_reg: LDO3 {
+				regulator-name = "vdd_ldo3";
+				regulator-min-microvolt = <800000>;
+				regulator-max-microvolt = <1950000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <3>;
+			};
+
+			l4_reg: LDO4 {
+				regulator-name = "vdd_ldo4";
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			l5_reg: LDO5 {
+				regulator-name = "vdd_ldo5";
+				regulator-min-microvolt = <800000>;
+				regulator-max-microvolt = <1350000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			l6_reg: LDO6 {
+				regulator-name = "vdd_ldo6";
+				regulator-min-microvolt = <800000>;
+				regulator-max-microvolt = <1350000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			l7_reg: LDO7 {
+				regulator-name = "vdd_ldo7";
+				regulator-min-microvolt = <800000>;
+				regulator-max-microvolt = <1950000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			l8_reg: LDO8 {
+				regulator-name = "vdd_ldo8";
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			l9_reg: LDO9 {
+				regulator-name = "vdd_ldo9";
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			l10_reg: LDO10 {
+				regulator-name = "vdd_ldo10";
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			l11_reg: LDO11 {
+				regulator-name = "vdd_ldo11";
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			l12_reg: LDO12 {
+				regulator-name = "vdd_ldo12";
+				regulator-min-microvolt = <800000>;
+				regulator-max-microvolt = <1350000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			l13_reg: LDO13 {
+				regulator-name = "vdd_ldo13";
+				regulator-min-microvolt = <800000>;
+				regulator-max-microvolt = <1950000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			l14_reg: LDO14 {
+				regulator-name = "vdd_ldo14";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <3375000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <1>;
+			};
+
+			l33_reg: LDO33 {
+				regulator-name = "vdd_ldo33";
+				regulator-min-microvolt = <800000>;
+				regulator-max-microvolt = <1950000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <3>;
+			};
+
+			l34_reg: LDO34 {
+				regulator-name = "vdd_ldo34";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <3375000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <3>;
+			};
+
+			l35_reg: LDO35 {
+				regulator-name = "vmmc";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <3000000>;
+				regulator-ramp-delay = <12000>;
+			};
+
+			l36_reg: LDO36 {
+				regulator-name = "vdd_ldo36";
+				regulator-min-microvolt = <800000>;
+				regulator-max-microvolt = <1950000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <3>;
+			};
+
+			l37_reg: LDO37 {
+				regulator-name = "vdd_ldo37";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <3375000>;
+				regulator-always-on;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <3>;
+			};
+		};
+	};
+};
+
+/* Camera rails: 4.4 exynos7904-m20lte_common.dtsi lines 714-769. */
+&hsi2c_4 {
+	status = "okay";
+	/* 4.4 i2c-exynos5.c:212,1623-1625 defaults to 400 kHz, not 100 kHz. */
+	clock-frequency = <400000>;
+
+	cam_pmic: pmic@56 {
+		compatible = "samsung,s2mpb03pmic";
+		reg = <0x56>;
+		disable_ldo2_remote_sense;
+		slew2,dram_dsch2 = /bits/ 8 <1>;
+		slew2,l5_slew = /bits/ 8 <0>;
+		slew2,l6_slew = /bits/ 8 <0>;
+
+		/* No always-on or boot-on flags in the board source or stock DTB. */
+		regulators {
+			cam_ldo1: s2mpb03-ldo1 {
+				regulator-name = "VDDDF_1.2V_CAM";
+				regulator-min-microvolt = <1200000>;
+				regulator-max-microvolt = <1200000>;
+			};
+
+			cam_ldo2: s2mpb03-ldo2 {
+				regulator-name = "VDDDR1_1.05V_CAM";
+				regulator-min-microvolt = <1050000>;
+				regulator-max-microvolt = <1050000>;
+			};
+
+			cam_ldo3: s2mpb03-ldo3 {
+				regulator-name = "VDDIOR1_1.8V_CAM";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
+			};
+
+			cam_ldo4: s2mpb03-ldo4 {
+				regulator-name = "VDDDR2_1.2V_CAM";
+				regulator-min-microvolt = <1200000>;
+				regulator-max-microvolt = <1200000>;
+			};
+
+			cam_ldo5: s2mpb03-ldo5 {
+				regulator-name = "VDDAF_2.8V_CAM";
+				regulator-min-microvolt = <2800000>;
+				regulator-max-microvolt = <2800000>;
+			};
+
+			cam_ldo6: s2mpb03-ldo6 {
+				regulator-name = "VDDAR1_2.8V_CAM";
+				regulator-min-microvolt = <2800000>;
+				regulator-max-microvolt = <2800000>;
+			};
+
+			cam_ldo7: s2mpb03-ldo7 {
+				regulator-name = "VDDAR2_2.8V_CAM";
+				regulator-min-microvolt = <2800000>;
+				regulator-max-microvolt = <2800000>;
+			};
+		};
+	};
+};
+
+/* Touch: Himax HX83112A on HS-I2C 5 (4.4 common.dtsi 771-800, rev03 overlay). */
+&hsi2c_5 {
+	status = "okay";
+	clock-frequency = <400000>;
+
+	himax_ts: touchscreen@48 {
+		compatible = "himax,hxcommon";
+		reg = <0x48>;
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <&attn_irq>;
+		himax,irq-gpio = <&gpa0 0 0>;
+		himax,rst-gpio = <&gpg2 1 0>;
+		himax,panel-coords = <0 1080 0 2340>;
+		himax,display-coords = <0 1080 0 2340>;
+		himax,project_name = "M20", "M205F";
+		himax,area-size = <80 126 60>;
+		himax,fw-path = "tsp_himax/hx83112a_m20lte.fw";
+		report_type = <1>;
+		himax,factory_item_version = <1>;
+	};
+};
+
+/* APM firmware IPC and the SPEEDY bus that the S2MPU08 PMIC hangs off. */
+&acpm_ipc {
+	status = "okay";
+};
+
+&acpm {
+	status = "okay";
+};
+
+&speedy {
+	status = "okay";
+};
+
+/* 4.4 exynos7904-m20lte_common.dtsi:955-966. */
+&i2c_1 {
+	status = "okay";
+	s2mu004@3D {
+		status = "okay";
+		compatible = "samsung,s2mu004mfd";
+		reg = <0x3D>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&if_pmic_irq>;
+		s2mu004,irq-gpio = <&gpa2 2 1>;
+		s2mu004,wakeup;
+	};
+};
+
+/*
+ * USB-C port controller and cable detection: stock DTB nodes usbpd-s2mu004@3C
+ * (I2C0), muic, pdic-manager and usb_notifier (4.4 exynos7904-m20lte_common.dtsi,
+ * battery_data_m20lte_swa_open_04.dtsi:22-51). The MUIC itself is a cell of the
+ * S2MU004 MFD above.
+ */
+/ {
+	pinctrl@11CB0000 {
+		usbpd_irq: usbpd-irq {
+			samsung,pins = "gpa2-3";
+			samsung,pin-function = <0xf>;
+			samsung,pin-pud = <0>;
+			samsung,pin-drv = <0>;
+		};
+	};
+
+	muic {
+		new_factory;
+		dcd_timeout;
+	};
+
+	pdic-manager {
+		pdic,max_power = <5000>;
+		pdic,op_power = <2500>;
+		pdic,max_voltage = <6000>;
+		pdic,max_current = <2000>;
+		pdic,min_current = <500>;
+		pdic,giveback = <0>;
+		pdic,usb_com_capable = <1>;
+		pdic,no_usb_suspend = <1>;
+		source,max_voltage = <5000>;
+		source,min_voltage = <4000>;
+		source,max_power = <2500>;
+		sink,capable_max_voltage = <9000>;
+	};
+
+	usb_notifier {
+		compatible = "samsung,usb-notifier";
+		udc = <&udc>;
+	};
+};
+
+&i2c_0 {
+	usbpd-s2mu004@3c {
+		compatible = "sec-usbpd,i2c";
+		reg = <0x3c>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&usbpd_irq>;
+		usbpd,usbpd_int = <&gpa2 3 0>;
+	};
+};
+
+/*
+ * Panel and board data for the display, 4.4 display-lcd_m20_common.dtsi.
+ * Only used when the DECON/DSIM/DPP nodes are enabled (see
+ * exynos7904-m20lte-decon.dts); the nodes themselves are inert otherwise.
+ */
+/ {
+	decon_board_hx83112a: decon_board_hx83112a {
+		gpio_lcd_1p8 = <&gpg1 2 0>;
+		gpio_blic_on = <&gpg1 0 0>;
+		gpio_panel_enp = <&gpg2 3 0>;
+		gpio_panel_enn = <&gpg2 6 0>;
+		gpio_lcd_rst = <&gpg2 0 0>;
+		gpio_tsp_rst = <&gpg2 1 0>;
+
+		dsim_set_panel_power_early {
+			type =
+			"gpio,high",	"gpio_lcd_1p8",
+			"delay,usleep",	"5000",
+			"gpio,high",	"gpio_blic_on",
+			"delay,usleep",	"5000";
+		};
+		dsim_set_panel_power_enable {
+			type =
+			"delay,usleep",	"1000",
+			"gpio,high",	"gpio_panel_enp",
+			"delay,usleep",	"2000",
+			"gpio,high",	"gpio_panel_enn",
+			"delay,usleep",	"5000";
+		};
+		dsim_set_panel_power_disable {
+			type =
+			"gpio,low",	"gpio_tsp_rst",
+			"gpio,low",	"gpio_lcd_rst",
+			"delay,usleep",	"5000",
+			"gpio,low",	"gpio_panel_enn",
+			"delay,usleep",	"5000",
+			"gpio,low",	"gpio_panel_enp",
+			"delay,usleep",	"5000",
+			"gpio,low",	"gpio_blic_on",
+			"delay,usleep",	"5000",
+			"gpio,low",	"gpio_lcd_1p8";
+		};
+		dsim_reset_panel {
+			type =
+			"gpio,high",	"gpio_tsp_rst",
+			"gpio,high",	"gpio_lcd_rst",
+			"delay,usleep",	"1000",
+			"gpio,low",	"gpio_lcd_rst",
+			"delay,usleep",	"1000",
+			"gpio,high",	"gpio_lcd_rst",
+			"delay,msleep",	"30";
+		};
+	};
+
+	hx83112a: hx83112a {
+		mode = <0>; /* 0: video mode, 1: DP command mode, 2: MIPI command mode */
+		resolution = <1080 2340>;
+		size = <67 145>;
+		timing,refresh = <60>;
+		/* dsim H porch : HBP, HFP, HSA */
+		timing,h-porch = <8 28 8>;
+		/* dsim V porch : VBP, VFP, VSA */
+		timing,v-porch = <5 27 5>;
+		timing,dsi-hs-clk = <1100>;
+		timing,pms = <3 127 0>;
+		timing,dsi-escape-clk = <16>;
+		mic_en = <0>;		/* 0: Disable, 1: Enable */
+		mic_ratio = <0>;	/* 0: 1/2 mic, 1: 1/3 mic */
+		mic_ver = <0>;		/* 0: mic v1.1, 1: v1.2, 2: v2.0 */
+		type_of_ddi = <0>;	/* 0: Samsung Mobile, 1: MAGNA, 2: Normal(Etc) */
+		dsc_en = <0>;		/* 0: Disable, 1: Enable */
+		dsc_cnt = <0>;		/* used DSC count */
+		dsc_slice_num = <0>;	/* count of dsc slice */
+		data_lane = <4>;	/* number of using data lane */
+		vt_compensation = <804>;	/* difference between wordclk and vclk at video mode */
+		eotp_disabled = <1>;	/* 0:EOTP Enable, 1: EOTP Disable */
+		decon_board = <&decon_board_hx83112a>;
+	};
+};
+
+&dsim_0 {
+	lcd_info = <&hx83112a>;
+};
+
+&decon_f {
+	psr_mode = <0>;		/* 0: video mode, 1: DP command mode, 2: MIPI command mode */
+	trig_mode = <1>;	/* 0: hw trigger, 1: sw trigger */
+	dsi_mode = <0>;		/* 0: single dsi, 1: dual dsi */
+};
+
+/* Backlight IC (LM3632 @0x11), 4.4 display-lcd_m20_common.dtsi. */
+&i2c_4 {
+	samsung,i2c-max-bus-freq = <400000>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	lm3632@11 {
+		compatible = "i2c,lm3632";
+		reg = <0x11>;
+	};
+};
+
+/*
+ * USB: 4.4 exynos7904-m20lte_common.dtsi:807-885. dr_mode "otg" as on stock: the
+ * Samsung dwc3 OTG state machine is replaced by an extcon device in the glue
+ * (dwc3-exynos.c) that the USB notifier drives from the MUIC/CCIC events.
+ * Until the first event arrives dwc3 stays in device mode.
+ */
+&udc {
+	status = "okay";
+
+	dwc3 {
+		dr_mode = "otg";
+		extcon = <&udc>;
+		maximum-speed = "high-speed";
+		snps,quirk-frame-length-adjustment = <0x20>;
+	};
+};
+
+&usbdrd_phy {
+	status = "okay";
+	hs_tune_param = <&usb_hs_tune>;
+};
+
+/ {
+	usb_hs_tune: hs_tune {
+		hs_tune_cnt = <12>;
+
+		/* value = <device host> */
+		hs_tune1 {
+			tune_name = "tx_vref";
+			tune_value = <0xd 0xa>;
+		};
+
+		hs_tune2 {
+			tune_name = "tx_pre_emp";
+			tune_value = <0x3 0x3>;
+		};
+
+		hs_tune3 {
+			tune_name = "tx_pre_emp_plus";
+			tune_value = <0x0 0x0>;
+		};
+
+		hs_tune4 {
+			tune_name = "tx_res";
+			tune_value = <0x3 0x3>;
+		};
+
+		hs_tune5 {
+			tune_name = "tx_rise";
+			tune_value = <0x3 0x3>;
+		};
+
+		hs_tune6 {
+			tune_name = "tx_hsxv";
+			tune_value = <0x3 0x3>;
+		};
+
+		hs_tune7 {
+			tune_name = "tx_fsls";
+			tune_value = <0x3 0x3>;
+		};
+
+		hs_tune8 {
+			tune_name = "rx_sqrx";
+			tune_value = <0x7 0x7>;
+		};
+
+		hs_tune9 {
+			tune_name = "compdis";
+			tune_value = <0x7 0x7>;
+		};
+
+		hs_tune10 {
+			tune_name = "otg";
+			tune_value = <0x2 0x2>;
+		};
+
+		hs_tune11 {
+			/* <enable_user_imp user_imp_value> */
+			tune_name = "enable_user_imp";
+			tune_value = <0x0 0x0>;
+		};
+
+		hs_tune12 {
+			/* PHY clk : 1, FREE clk : 0 */
+			tune_name = "is_phyclock";
+			tune_value = <0x1 0x1>;
+		};
+	};
+};
+
+&scsc_wifibt {
+	status = "okay";
+};
+/* M20 COD3035X + TFA9896 topology, preserving the vendor HAL DAI order. */
+/ {
+	but_zones: but-zones {
+		#list-but-cells = <3>;
+	};
+
+	dummy_audio_codec: audio-codec-dummy {
+		compatible = "snd-soc-dummy";
+		#sound-dai-cells = <0>;
+	};
+
+	reserved-memory {
+		abox_rmem: abox-debug@e9400000 {
+			compatible = "exynos,abox_rmem";
+			reg = <0x0 0xe9400000 0x0 0x400000>;
+		};
+	};
+
+	sound {
+		status = "okay";
+		compatible = "samsung,exynos7885-cod3035";
+		mic-bias-mode = <1 1 2 0>;
+
+		samsung,codec = <&abox>;
+
+		samsung,routing =  "VOUTPUT", "ABOX UAIF0 Playback",
+				 "VOUTPUTCALL", "ABOX UAIF2 Playback",
+				 "ABOX UAIF2 Capture", "VINPUTCALL",
+				 "ABOX SPEEDY Capture", "VINPUTFM",
+				 // "SPK", "ABOX UAIF3 Playback",
+				 // "ABOX UAIF3 Capture", "VI";
+				 "SPK", "AIF Playback-b-34",
+				 "AIF Playback-b-34", "ABOX UAIF3 Playback",
+				 "ABOX UAIF3 Capture", "AIF Capture-b-34";
+
+		rdma-0 {
+			cpu {
+				sound-dai = <&abox 0>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		rdma-1 {
+			cpu {
+				sound-dai = <&abox 1>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		rdma-2 {
+			cpu {
+				sound-dai = <&abox 2>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		rdma-3 {
+			cpu {
+				sound-dai = <&abox 3>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		rdma-4 {
+			cpu {
+				sound-dai = <&abox 4>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		rdma-5 {
+			cpu {
+				sound-dai = <&abox 5>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		rdma-6 {
+			cpu {
+				sound-dai = <&abox 6>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		rdma-7 {
+			cpu {
+				sound-dai = <&abox 7>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		wdma-0 {
+			cpu {
+				sound-dai = <&abox 8>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		wdma-1 {
+			cpu {
+				sound-dai = <&abox 9>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		wdma-2 {
+			cpu {
+				sound-dai = <&abox 10>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		wdma-3 {
+			cpu {
+				sound-dai = <&abox 11>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		wdma-4 {
+			cpu {
+				sound-dai = <&abox 12>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		uaif-0 {
+			cpu {
+				sound-dai = <&abox 13>;
+			};
+			codec {
+				sound-dai = <&audio_codec_cod3035x>;
+			};
+		};
+		uaif-1 {
+			cpu {
+				sound-dai = <&abox 14>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		uaif-2 {
+			cpu {
+				sound-dai = <&abox 15>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		uaif-3 {
+			cpu {
+				sound-dai = <&abox 16>;
+			};
+			codec {
+				sound-dai = <&tfa98xx 0>;
+			};
+		};
+		internal-0 {
+			cpu {
+				sound-dai = <&abox 17>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+		speedy-0 {
+			cpu {
+				sound-dai = <&abox 18>;
+			};
+			codec {
+				sound-dai = <&dummy_audio_codec>;
+			};
+		};
+	};
+};
+
+&sysmmu_abox {
+	status = "okay";
+};
+
+&abox_gic {
+	status = "okay";
+};
+
+&abox {
+	status = "okay";
+	samsung,abox-bootargs = "init=ab0x vss=1";
+	samsung,abox-bootargs-offset = <0x22e00>;
+};
+
+&ext_bin_0 {
+	status = "disabled";
+};
+
+/* M20 uses the FM pins as pulled-down inputs rather than the SoC default. */
+&aud_fm_bus {
+	samsung,pin-function = <0>;
+};
+
+&speedy {
+	audio_codec_cod3035x: cod3035x@3 {
+		compatible = "codec,cod3035x";
+		reg = <0x03>;
+		i2c-speedy-address;
+		vdd-supply = <&l36_reg>;
+		vdd_ldo36-supply = <&l36_reg>;
+		vdd_ldo37-supply = <&l37_reg>;
+		interrupts-extended = <&gpa2 0 IRQ_TYPE_LEVEL_LOW>;
+		pinctrl-names = "default";
+		mic-bias1-voltage = <1>;
+		mic-bias2-voltage = <1>;
+		mic-bias-ldo-voltage = <3>;
+		use-lassenA;
+		use-btn-adc-mode;
+		use-feature-flag = <0x02>;
+		use-det-gdet-adc-mode = <1>;
+		jack-imp-tuning = <7>;
+		io-channels = <&exynos_adc 3>,<&exynos_adc 7>;
+		io-channel-names = "adc-ear","adc-gdet";
+		#sound-dai-cells = <0>;
+		io-channel-ranges;
+		but-zones-list = <&but_zones 226 0 376>,
+				 <&but_zones 582 377 447>,
+				 <&but_zones 115 448 627>,
+				 <&but_zones 114 628 1161>;
+		mic-adc-range = <1404>;
+		btn-release-value = <1404>;
+		};
+};
+
+&s2mpu08 {
+	samsung,codec-interrupt = <&audio_codec_cod3035x>;
+};
+
+&i2c_3 {
+	status = "okay";
+	samsung,i2c-max-bus-freq = <400000>;
+	tfa98xx: tfa98xx@34 {
+		compatible = "nxp,tfa98xx";
+		reg = <0x34>;
+		#sound-dai-cells = <1>;
+	};
+};
