@@ -121,8 +121,13 @@ int main(int argc, char **argv)
 		fclose(f);
 		exit(0);
 	} else if (!strncmp(cert_src, "pkcs11:", 7)) {
-#ifdef OPENSSL_IS_BORINGSSL
-		ERR(1, "BoringSSL does not support extracting from PKCS#11");
+#if defined(OPENSSL_IS_BORINGSSL) || defined(M20LTE_HOST_NO_OPENSSL_ENGINE)
+		/*
+		 * Build-host fix for this tree: current distributions ship OpenSSL
+		 * without the ENGINE library, so the PKCS#11 path cannot link. Only
+		 * file certificates are used here (CONFIG_SYSTEM_TRUSTED_KEYS="").
+		 */
+		ERR(1, "extracting from PKCS#11 is not supported on this host");
 		exit(1);
 #else
 		ENGINE *e;
