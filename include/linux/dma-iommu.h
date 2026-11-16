@@ -5,6 +5,10 @@
 #ifndef __DMA_IOMMU_H
 #define __DMA_IOMMU_H
 
+/* Exynos MFCMSCL: reserved low IOVA window aliasing the MFC firmware. */
+#define EXYNOS_MFC_FW_IOVA		0x10000000UL
+#define EXYNOS_MFC_FW_IOVA_SIZE		0x00400000UL
+
 #include <linux/errno.h>
 #include <linux/types.h>
 
@@ -15,6 +19,8 @@
 
 /* Domain management interface for IOMMU drivers */
 int iommu_get_dma_cookie(struct iommu_domain *domain);
+/* Enable before DMA-domain initialization; mappings retain an unmapped tail. */
+int iommu_dma_enable_guard_page(struct iommu_domain *domain);
 int iommu_get_msi_cookie(struct iommu_domain *domain, dma_addr_t base);
 void iommu_put_dma_cookie(struct iommu_domain *domain);
 
@@ -55,6 +61,11 @@ static inline void iommu_setup_dma_ops(struct device *dev, u64 dma_base,
 }
 
 static inline int iommu_get_dma_cookie(struct iommu_domain *domain)
+{
+	return -ENODEV;
+}
+
+static inline int iommu_dma_enable_guard_page(struct iommu_domain *domain)
 {
 	return -ENODEV;
 }

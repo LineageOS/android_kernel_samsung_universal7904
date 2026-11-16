@@ -48,6 +48,8 @@ struct iommu_dma_cookie {
 
 	/* Domain for flush queue callback; NULL if flush queue not in use */
 	struct iommu_domain		*fq_domain;
+	/* Port-local opt-in for media engines without stream-size registers. */
+	bool				guard_page;
 };
 
 struct iommu_dma_cookie_ext {
@@ -94,6 +96,24 @@ int iommu_get_dma_cookie(struct iommu_domain *domain)
 	return 0;
 }
 EXPORT_SYMBOL(iommu_get_dma_cookie);
+
+int iommu_dma_enable_guard_page(struct iommu_domain *domain)
+{
+	struct iommu_dma_cookie *cookie = domain->iova_cookie;
+
+	if (!cookie || cookie->type != IOMMU_DMA_IOVA_COOKIE)
+		return -EINVAL;
+	if (cookie->guard_page)
+		return 0;
+	/* Changing allocation lengths after DMA setup would break free/cache
+	 * accounting. The platform driver opts in at its first domain attach.
+	 */
+	if (cookie->iovad.granule)
+		return -EBUSY;
+	cookie->guard_page = true;
+	return 0;
+}
+EXPORT_SYMBOL_GPL(iommu_dma_enable_guard_page);
 
 /**
  * iommu_get_msi_cookie - Acquire just MSI remapping resources
@@ -484,6 +504,11 @@ static dma_addr_t iommu_dma_alloc_iova(struct iommu_domain *domain,
 
 	shift = iova_shift(iovad);
 	iova_len = size >> shift;
+	if (cookie->guard_page) {
+		if (!iova_len || iova_len == ULONG_MAX)
+			return 0;
+		iova_len++;
+	}
 	/*
 	 * Freeing non-power-of-two-sized allocations back into the IOVA caches
 	 * will come back to bite us badly, so we have to waste a bit of space
@@ -519,14 +544,17 @@ static void iommu_dma_free_iova(struct iommu_dma_cookie *cookie,
 	struct iova_domain *iovad = &cookie->iovad;
 
 	/* The MSI case is only ever cleaning up its most recent allocation */
-	if (cookie->type == IOMMU_DMA_MSI_COOKIE)
+	if (cookie->type == IOMMU_DMA_MSI_COOKIE) {
 		cookie->msi_iova -= size;
-	else if (cookie->fq_domain)	/* non-strict mode */
-		queue_iova(iovad, iova_pfn(iovad, iova),
-				size >> iova_shift(iovad), 0);
-	else
-		free_iova_fast(iovad, iova_pfn(iovad, iova),
-				size >> iova_shift(iovad));
+	} else {
+		unsigned long pages = size >> iova_shift(iovad);
+
+		pages += cookie->guard_page;
+		if (cookie->fq_domain)	/* non-strict mode */
+			queue_iova(iovad, iova_pfn(iovad, iova), pages, 0);
+		else
+			free_iova_fast(iovad, iova_pfn(iovad, iova), pages);
+	}
 
 	trace_android_vh_iommu_free_iova(iova, size);
 	trace_android_vh_iommu_iovad_free_iova(iovad, iova, size);
