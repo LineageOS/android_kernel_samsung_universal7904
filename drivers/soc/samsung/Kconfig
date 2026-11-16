@@ -35,6 +35,41 @@ config EXYNOS_PM_DOMAINS
 	bool "Exynos PM domains" if COMPILE_TEST
 	depends on (ARCH_EXYNOS && PM_GENERIC_DOMAINS) || COMPILE_TEST
 
+config EXYNOS7885_PM_DOMAINS
+	bool "Exynos7885 DISPAUD power domain"
+	depends on ARCH_EXYNOS && ARM64 && OF && PM
+	select PM_GENERIC_DOMAINS
+	select EXYNOS7885_PMUCAL
+	help
+	  Register the DISPAUD domain using the Samsung local PMUCAL sequences
+	  and secure peripheral save/restore. Other domains are not supported.
+	  Audio/CP-call firmware policy and ABOX shutdown are not ported; do not
+	  enable audio or modem firmware users until they participate in genpd.
+
+config EXYNOS7885_PMU_LPM
+	bool "Exynos7885 PMU low-power init and CPU power sequences"
+	depends on EXYNOS7885_PM_DOMAINS && ARM_PSCI_FW
+	select EXYNOS7885_PMUCAL
+	default y
+	help
+	  Run the 4.4 pmucal_system lpm_init sequence (CPUn_OPTION wake-up
+	  enables, central sequencer options) and the per-core/cluster PMU
+	  power sequences on CPU hotplug.  Required by the CPU idle C2 state.
+	  Suspend-to-RAM itself is EXYNOS7885_SLEEP.
+
+config EXYNOS7885_SLEEP
+	bool "Exynos7885 SoC sleep (suspend-to-RAM)"
+	depends on EXYNOS7885_PMU_LPM && SUSPEND
+	help
+	  Enter the Exynos7885 SYS_SLEEP power mode on suspend, using the
+	  Samsung 4.4 PMU sequences and the vendor PSCI system-sleep state,
+	  instead of suspend-to-idle.
+
+config EXYNOS7885_PMUCAL
+	bool
+	depends on ARCH_EXYNOS && ARM64
+	select MFD_SYSCON
+
 config SAMSUNG_PM_DEBUG
 	bool "Samsung PM Suspend debug"
 	depends on PM && DEBUG_KERNEL
@@ -82,7 +117,51 @@ config SAMSUNG_PM_CHECK_CHUNKSIZE
 
 	  See <file:Documentation/arm/samsung-s3c24xx/suspend.rst>
 
+config EXYNOS_SECMEM
+	bool "Exynos secure-memory userspace interface"
+	depends on ARCH_EXYNOS && ARM64
+	help
+	  Provide the legacy /dev/s5p-smem ioctl interface used by Exynos
+	  userspace. Secure ION heap queries and MIF QoS are not yet supported.
+	  This interface alone does not provide protected-buffer allocation.
+
 config EXYNOS_REGULATOR_COUPLER
 	bool "Exynos SoC Regulator Coupler" if COMPILE_TEST
 	depends on ARCH_EXYNOS || COMPILE_TEST
+config ECT
+	bool "Exynos Characteristic Table (ECT) parser"
+	depends on ARCH_EXYNOS && OF
+	help
+	  Parse the bootloader-provided ECT blob (thermal, DVFS, min-lock
+	  tables) described by the /ect DT node.
+
+config ECT_DUMP
+	bool "ECT debugfs dump"
+	depends on ECT && DEBUG_FS
+
 endif
+
+config EXYNOS_ACPM
+	bool "Exynos ACPM (APM firmware IPC) driver"
+	depends on ARCH_EXYNOS
+	default y
+	help
+	  Mailbox IPC to the APM (ACPM) firmware. Used by the S2MPU08 PMIC on M20.
+
+config CP_PMUCAL
+	bool "Exynos7885 CP power sequences"
+	depends on ARCH_EXYNOS && ARM64
+	select EXYNOS_PMU
+	help
+	  Samsung CP secure power/reset sequences. No sequence runs at init.
+
+config CP_SECURE_BOOT
+	bool
+	default y if CP_PMUCAL
+config EXYNOS_ACPM_DVFS
+	bool "Exynos ACPM DVFS requests"
+	depends on EXYNOS_ACPM
+	default n
+	help
+	  Frequency/voltage requests to the APM firmware (MIF, INT, CPU clusters,
+	  G3D, FSYS, CAM, DISP, AUD). Needed by the GPU driver.
