@@ -18,6 +18,7 @@
 #include <linux/clk.h>
 #include <linux/slab.h>
 #include <linux/io.h>
+#include <linux/sizes.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
 #include <linux/of_irq.h>
@@ -181,6 +182,7 @@ struct exynos5_i2c {
 	unsigned int		irq;
 
 	void __iomem		*regs;
+	void __iomem		*imode_base;	/* USI mode register (4.4 samsung,usi-i-mode) */
 	struct clk		*clk;
 	struct device		*dev;
 	int			state;
@@ -230,6 +232,15 @@ static const struct exynos_hsi2c_variant exynos7_hsi2c_data = {
 	.hw		= I2C_TYPE_EXYNOS7,
 };
 
+/* Samsung 4.4's generic exynos5 compatible hides the newer 7885 IP:
+ * 64-byte FIFO, with transfer done/error bits in INT_STATUS (bits 7-11)
+ * rather than the Exynos5250 summary interrupt / TRANS_STATUS layout.
+ */
+static const struct exynos_hsi2c_variant exynos7885_hsi2c_data = {
+	.fifo_depth	= 64,
+	.hw		= I2C_TYPE_EXYNOS7,
+};
+
 static const struct of_device_id exynos5_i2c_match[] = {
 	{
 		.compatible = "samsung,exynos5-hsi2c",
@@ -243,6 +254,9 @@ static const struct of_device_id exynos5_i2c_match[] = {
 	}, {
 		.compatible = "samsung,exynos7-hsi2c",
 		.data = &exynos7_hsi2c_data
+	}, {
+		.compatible = "samsung,exynos7885-hsi2c",
+		.data = &exynos7885_hsi2c_data
 	}, {},
 };
 MODULE_DEVICE_TABLE(of, exynos5_i2c_match);
@@ -668,6 +682,19 @@ static void exynos5_i2c_message_start(struct exynos5_i2c *i2c, int stop)
 	spin_unlock_irqrestore(&i2c->lock, flags);
 }
 
+/* A 16 KiB camera EEPROM read needs at least 369 ms at 400 kHz.
+ * Budget the ACKed address/data bytes plus margin for clock stretching and
+ * IRQ scheduling, retaining the existing 100 ms floor for short messages.
+ */
+static unsigned long exynos5_i2c_message_timeout(struct exynos5_i2c *i2c,
+		const struct i2c_msg *msg)
+{
+	u64 wire_ms = DIV_ROUND_UP_ULL((u64)(msg->len + 2) * 9 * 1000,
+			i2c->op_clock);
+
+	return msecs_to_jiffies(100 + 2 * wire_ms);
+}
+
 static int exynos5_i2c_xfer_msg(struct exynos5_i2c *i2c,
 			      struct i2c_msg *msgs, int stop)
 {
@@ -683,7 +710,7 @@ static int exynos5_i2c_xfer_msg(struct exynos5_i2c *i2c,
 	exynos5_i2c_message_start(i2c, stop);
 
 	timeout = wait_for_completion_timeout(&i2c->msg_complete,
-					      EXYNOS5_I2C_TIMEOUT);
+					      exynos5_i2c_message_timeout(i2c, msgs));
 	if (timeout == 0)
 		ret = -ETIMEDOUT;
 	else
@@ -697,10 +724,16 @@ static int exynos5_i2c_xfer_msg(struct exynos5_i2c *i2c,
 		ret = exynos5_i2c_wait_bus_idle(i2c);
 
 	if (ret < 0) {
-		exynos5_i2c_reset(i2c);
 		if (ret == -ETIMEDOUT)
-			dev_warn(i2c->dev, "%s timeout\n",
-				 (msgs->flags & I2C_M_RD) ? "rx" : "tx");
+			dev_warn(i2c->dev,
+				"%s timeout addr=%#x len=%u received=%u done=%d int=%#x fifo=%#x status=%#x\n",
+				(msgs->flags & I2C_M_RD) ? "rx" : "tx",
+				msgs->addr, msgs->len, i2c->msg_ptr,
+				i2c->trans_done,
+				readl(i2c->regs + HSI2C_INT_STATUS),
+				readl(i2c->regs + HSI2C_FIFO_STATUS),
+				readl(i2c->regs + HSI2C_TRANS_STATUS));
+		exynos5_i2c_reset(i2c);
 	}
 
 	/* Return the state as in interrupt routine */
@@ -742,6 +775,7 @@ static int exynos5_i2c_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
 	struct exynos5_i2c *i2c;
+	u32 usi_addr;
 	int ret;
 
 	i2c = devm_kzalloc(&pdev->dev, sizeof(struct exynos5_i2c), GFP_KERNEL);
@@ -771,6 +805,28 @@ static int exynos5_i2c_probe(struct platform_device *pdev)
 	if (IS_ERR(i2c->regs)) {
 		ret = PTR_ERR(i2c->regs);
 		goto err_clk;
+	}
+
+	/*
+	 * 4.4: a USI channel must be put in HS-I2C mode (value 3) before use.
+	 * Dedicated HSI2C channels have no samsung,usi-i-mode property.
+	 */
+	if (!of_property_read_u32(np, "samsung,usi-i-mode", &usi_addr)) {
+		i2c->imode_base = devm_ioremap(&pdev->dev, usi_addr, SZ_1K);
+		if (!i2c->imode_base) {
+			ret = -ENOMEM;
+			goto err_clk;
+		}
+		/*
+		 * 4.4 usi.c programs the mode unconditionally. The bootloader may
+		 * leave USI0 in single-channel mode, which kills the other channel
+		 * (the camera PMIC on channel 0 while the touchscreen works).
+		 */
+		if (readl(i2c->imode_base) != 3) {
+			dev_warn(&pdev->dev, "USI mode %#x -> 3 (HS-I2C dual)\n",
+				 readl(i2c->imode_base));
+			writel(3, i2c->imode_base);
+		}
 	}
 
 	i2c->adap.dev.of_node = np;
