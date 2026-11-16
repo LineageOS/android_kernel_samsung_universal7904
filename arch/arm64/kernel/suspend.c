@@ -112,6 +112,16 @@ int cpu_suspend(unsigned long arg, int (*fn)(unsigned long))
 	pause_graph_tracing();
 
 	if (__cpu_suspend_enter(&state)) {
+#ifdef CONFIG_EXYNOS7885_SLEEP
+		/*
+		 * As the Samsung 4.4 kernel: clean the saved context and the
+		 * resume stash to the PoC explicitly. The Exynos7885 firmware
+		 * restores it with caches off, after losing cluster power.
+		 */
+		__flush_dcache_area(&state, sizeof(state));
+		__flush_dcache_area(sleep_save_stash,
+			mpidr_hash_size() * sizeof(*sleep_save_stash));
+#endif
 		/* Call the suspend finisher */
 		ret = fn(arg);
 
