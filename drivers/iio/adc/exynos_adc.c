@@ -52,6 +52,10 @@
 #define ADC_V2_STAT(x)		((x) + 0x08)
 #define ADC_V2_INT_EN(x)	((x) + 0x10)
 #define ADC_V2_INT_ST(x)	((x) + 0x14)
+#define ADC_V3_DAT(x) ((x) + 0x08)
+#define ADC_V2_CON1_SOFT_NON_RESET (1u << 1)
+#define MAX_ADC_V3_CHANNELS 12
+
 #define ADC_V2_VER(x)		((x) + 0x20)
 
 /* Bit definitions for ADC_V1 */
@@ -151,6 +155,8 @@ struct exynos_adc {
 };
 
 struct exynos_adc_data {
+	bool is_v3;
+	irqreturn_t (*adc_isr)(int irq, void *dev_id);
 	int num_channels;
 	bool needs_sclk;
 	bool needs_adc_phy;
@@ -455,6 +461,66 @@ static const struct exynos_adc_data exynos3250_adc_data = {
 	.start_conv	= exynos_adc_v2_start_conv,
 };
 
+
+/* universal7904 4.4 exynos_adc.c:468-523, unchanged conversion logic. */
+static void exynos_adc_v3_init_hw(struct exynos_adc *info)
+{
+	u32 con1, con2;
+
+	con1 = ADC_V2_CON1_SOFT_RESET;
+	writel(con1, ADC_V2_CON1(info->regs));
+
+	con1 = ADC_V2_CON1_SOFT_NON_RESET;
+	writel(con1, ADC_V2_CON1(info->regs));
+
+	con2 = ADC_V2_CON2_C_TIME(6);
+	writel(con2, ADC_V2_CON2(info->regs));
+
+	/* Enable interrupts */
+	writel(1, ADC_V2_INT_EN(info->regs));
+}
+
+static void exynos_adc_v3_exit_hw(struct exynos_adc *info)
+{
+	u32 con2;
+
+	con2 = readl(ADC_V2_CON2(info->regs));
+	con2 &= ~ADC_V2_CON2_C_TIME(7);
+	writel(con2, ADC_V2_CON2(info->regs));
+
+	/* Disable interrupts */
+	writel(0, ADC_V2_INT_EN(info->regs));
+}
+
+static irqreturn_t exynos_adc_v3_isr(int irq, void *dev_id)
+{
+	struct exynos_adc *info = (struct exynos_adc *)dev_id;
+	u32 mask = info->data->mask;
+
+	/* Read value */
+	info->value = readl(ADC_V3_DAT(info->regs)) & mask;
+
+	/* clear irq */
+	if (info->data->clear_irq)
+		info->data->clear_irq(info);
+
+	complete(&info->completion);
+
+	return IRQ_HANDLED;
+}
+
+static const struct exynos_adc_data exynos_adc_v3_data = {
+	.is_v3		= true,
+	.num_channels	= MAX_ADC_V3_CHANNELS,
+	.mask		= ADC_DATX_MASK, /* 12 bit ADC resolution */
+
+	.init_hw	= exynos_adc_v3_init_hw,
+	.exit_hw	= exynos_adc_v3_exit_hw,
+	.clear_irq	= exynos_adc_v2_clear_irq,
+	.start_conv	= exynos_adc_v2_start_conv,
+	.adc_isr	= exynos_adc_v3_isr,
+};
+
 static void exynos_adc_exynos7_init_hw(struct exynos_adc *info)
 {
 	u32 con1, con2;
@@ -513,6 +579,9 @@ static const struct of_device_id exynos_adc_match[] = {
 		.compatible = "samsung,exynos3250-adc",
 		.data = &exynos3250_adc_data,
 	}, {
+		.compatible = "samsung,exynos-adc-v3",
+		.data = &exynos_adc_v3_data,
+	}, {
 		.compatible = "samsung,exynos7-adc",
 		.data = &exynos7_adc_data,
 	},
@@ -539,6 +608,8 @@ static int exynos_read_raw(struct iio_dev *indio_dev,
 	int ret;
 
 	if (mask == IIO_CHAN_INFO_SCALE) {
+		if (!info->vdd)
+			return -ENODATA;
 		ret = regulator_get_voltage(info->vdd);
 		if (ret < 0)
 			return ret;
@@ -719,6 +790,31 @@ static const struct iio_chan_spec exynos_adc_iio_channels[] = {
 };
 
 
+#define ADC_V3_CHANNEL(_index, _id) {			\
+	.type = IIO_VOLTAGE,				\
+	.indexed = 1,					\
+	.channel = _index,				\
+	.address = _index,				\
+	.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),	\
+	.datasheet_name = _id,				\
+}
+
+static const struct iio_chan_spec exynos_adc_v3_iio_channels[] = {
+	ADC_V3_CHANNEL(0, "adc0"),
+	ADC_V3_CHANNEL(1, "adc1"),
+	ADC_V3_CHANNEL(2, "adc2"),
+	ADC_V3_CHANNEL(3, "adc3"),
+	ADC_V3_CHANNEL(4, "adc4"),
+	ADC_V3_CHANNEL(5, "adc5"),
+	ADC_V3_CHANNEL(6, "adc6"),
+	ADC_V3_CHANNEL(7, "adc7"),
+	ADC_V3_CHANNEL(8, "adc8"),
+	ADC_V3_CHANNEL(9, "adc9"),
+	ADC_V3_CHANNEL(10, "adc10"),
+	ADC_V3_CHANNEL(11, "adc11"),
+};
+
+
 
 static int exynos_adc_ts_open(struct input_dev *dev)
 {
@@ -839,7 +935,8 @@ static int exynos_adc_probe(struct platform_device *pdev)
 
 	init_completion(&info->completion);
 
-	info->clk = devm_clk_get(&pdev->dev, "adc");
+	info->clk = devm_clk_get(&pdev->dev,
+			info->data->is_v3 ? "gate_adcif" : "adc");
 	if (IS_ERR(info->clk)) {
 		dev_err(&pdev->dev, "failed getting clock, err = %ld\n",
 							PTR_ERR(info->clk));
@@ -856,12 +953,19 @@ static int exynos_adc_probe(struct platform_device *pdev)
 		}
 	}
 
-	info->vdd = devm_regulator_get(&pdev->dev, "vdd");
-	if (IS_ERR(info->vdd))
-		return dev_err_probe(&pdev->dev, PTR_ERR(info->vdd),
-				     "failed getting regulator");
+	/* The vendor v3 DT has no controllable ADC regulator (4.4:788-793). */
+	info->vdd = info->data->is_v3 ?
+		devm_regulator_get_optional(&pdev->dev, "vdd") :
+		devm_regulator_get(&pdev->dev, "vdd");
+	if (IS_ERR(info->vdd)) {
+		if (info->data->is_v3 && PTR_ERR(info->vdd) == -ENODEV)
+			info->vdd = NULL;
+		else
+			return dev_err_probe(&pdev->dev, PTR_ERR(info->vdd),
+					     "failed getting regulator");
+	}
 
-	ret = regulator_enable(info->vdd);
+	ret = info->vdd ? regulator_enable(info->vdd) : 0;
 	if (ret)
 		return ret;
 
@@ -878,12 +982,13 @@ static int exynos_adc_probe(struct platform_device *pdev)
 	indio_dev->name = dev_name(&pdev->dev);
 	indio_dev->info = &exynos_adc_iio_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
-	indio_dev->channels = exynos_adc_iio_channels;
+	indio_dev->channels = info->data->is_v3 ?
+		exynos_adc_v3_iio_channels : exynos_adc_iio_channels;
 	indio_dev->num_channels = info->data->num_channels;
 
 	mutex_init(&info->lock);
 
-	ret = request_irq(info->irq, exynos_adc_isr,
+	ret = request_irq(info->irq, info->data->adc_isr ?: exynos_adc_isr,
 					0, dev_name(&pdev->dev), info);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "failed requesting irq, irq = %d\n",
@@ -933,7 +1038,8 @@ err_disable_clk:
 err_unprepare_clk:
 	exynos_adc_unprepare_clk(info);
 err_disable_reg:
-	regulator_disable(info->vdd);
+	if (info->vdd)
+		regulator_disable(info->vdd);
 	return ret;
 }
 
@@ -953,7 +1059,8 @@ static int exynos_adc_remove(struct platform_device *pdev)
 		info->data->exit_hw(info);
 	exynos_adc_disable_clk(info);
 	exynos_adc_unprepare_clk(info);
-	regulator_disable(info->vdd);
+	if (info->vdd)
+		regulator_disable(info->vdd);
 
 	return 0;
 }
@@ -967,7 +1074,8 @@ static int exynos_adc_suspend(struct device *dev)
 	if (info->data->exit_hw)
 		info->data->exit_hw(info);
 	exynos_adc_disable_clk(info);
-	regulator_disable(info->vdd);
+	if (info->vdd)
+		regulator_disable(info->vdd);
 
 	return 0;
 }
@@ -978,7 +1086,7 @@ static int exynos_adc_resume(struct device *dev)
 	struct exynos_adc *info = iio_priv(indio_dev);
 	int ret;
 
-	ret = regulator_enable(info->vdd);
+	ret = info->vdd ? regulator_enable(info->vdd) : 0;
 	if (ret)
 		return ret;
 

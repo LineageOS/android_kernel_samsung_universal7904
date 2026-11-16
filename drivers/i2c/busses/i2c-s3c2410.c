@@ -727,7 +727,7 @@ static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
 				dev_err(i2c->dev, "deal with arbitration loss\n");
 		}
 	} else {
-		timeout = wait_event_timeout(i2c->wait, i2c->msg_num == 0, HZ * 5);
+		timeout = wait_event_timeout(i2c->wait, i2c->msg_num == 0, HZ * 1);
 	}
 
 	ret = i2c->msg_idx;

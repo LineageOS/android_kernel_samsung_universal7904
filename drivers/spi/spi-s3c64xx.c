@@ -192,6 +192,7 @@ struct s3c64xx_spi_driver_data {
 	struct s3c64xx_spi_dma_data	tx_dma;
 	struct s3c64xx_spi_port_config	*port_conf;
 	unsigned int			port_id;
+	bool				secure_fingerprint;
 };
 
 static void s3c64xx_flush_fifo(struct s3c64xx_spi_driver_data *sdd)
@@ -325,7 +326,7 @@ static void s3c64xx_spi_set_cs(struct spi_device *spi, bool enable)
 	struct s3c64xx_spi_driver_data *sdd =
 					spi_master_get_devdata(spi->master);
 
-	if (sdd->cntrlr_info->no_cs)
+	if (sdd->secure_fingerprint || sdd->cntrlr_info->no_cs)
 		return;
 
 	if (enable) {
@@ -343,6 +344,13 @@ static void s3c64xx_spi_set_cs(struct spi_device *spi, bool enable)
 			writel(S3C64XX_SPI_CS_SIG_INACT,
 			       sdd->regs + S3C64XX_SPI_CS_REG);
 	}
+}
+
+/* Assert in transfer_one after configuration; release at message end. */
+static void exynos7885_spi_set_cs(struct spi_device *spi, bool level)
+{
+	if (level)
+		s3c64xx_spi_set_cs(spi, false);
 }
 
 static int s3c64xx_spi_prepare_transfer(struct spi_master *spi)
@@ -545,7 +553,7 @@ static int s3c64xx_wait_for_pio(struct s3c64xx_spi_driver_data *sdd,
 	 * For any size less than the fifo size the below code is
 	 * executed atleast once.
 	 */
-	loops = xfer->len / ((FIFO_LVL_MASK(sdd) >> 1) + 1);
+	loops = (xfer->len - 1) / ((FIFO_LVL_MASK(sdd) >> 1) + 1);
 	buf = xfer->rx_buf;
 	do {
 		/* wait for data to be received in the fifo */
@@ -655,6 +663,9 @@ static int s3c64xx_spi_prepare_message(struct spi_master *master,
 	struct spi_device *spi = msg->spi;
 	struct s3c64xx_spi_csinfo *cs = spi->controller_data;
 
+	if (sdd->secure_fingerprint)
+		return -EACCES;
+
 	/* Configure feedback delay */
 	writel(cs->fb_delay & 0x3, sdd->regs + S3C64XX_SPI_FB_CLK);
 
@@ -682,6 +693,9 @@ static int s3c64xx_spi_transfer_one(struct spi_master *master,
 	u32 speed;
 	u8 bpw;
 	unsigned long flags;
+
+	if (sdd->secure_fingerprint)
+		return -EACCES;
 
 	reinit_completion(&sdd->xfer_completion);
 
@@ -764,6 +778,8 @@ static int s3c64xx_spi_transfer_one(struct spi_master *master,
 		} else {
 			s3c64xx_flush_fifo(sdd);
 		}
+		if (status)
+			break;
 		if (target_len > 0) {
 			target_len -= xfer->len;
 
@@ -851,6 +867,12 @@ static int s3c64xx_spi_setup(struct spi_device *spi)
 		return -ENODEV;
 	}
 
+	/* Trustonic owns the bus registers and chip select, as in 4.4. */
+	if (sdd->secure_fingerprint) {
+		spi_set_ctldata(spi, cs);
+		return 0;
+	}
+
 	if (!spi_get_ctldata(spi)) {
 		if (gpio_is_valid(spi->cs_gpio)) {
 			err = gpio_request_one(spi->cs_gpio, GPIOF_OUT_INIT_HIGH,
@@ -927,9 +949,18 @@ err_gpio_req:
 	return err;
 }
 
+
 static void s3c64xx_spi_cleanup(struct spi_device *spi)
 {
 	struct s3c64xx_spi_csinfo *cs = spi_get_ctldata(spi);
+	struct s3c64xx_spi_driver_data *sdd = spi_master_get_devdata(spi->master);
+
+	if (sdd->secure_fingerprint) {
+		kfree(cs);
+		spi_set_ctldata(spi, NULL);
+		spi->controller_data = NULL;
+		return;
+	}
 
 	if (gpio_is_valid(spi->cs_gpio)) {
 		gpio_free(spi->cs_gpio);
@@ -985,6 +1016,9 @@ static void s3c64xx_spi_hwinit(struct s3c64xx_spi_driver_data *sdd)
 	struct s3c64xx_spi_info *sci = sdd->cntrlr_info;
 	void __iomem *regs = sdd->regs;
 	unsigned int val;
+
+	if (sdd->secure_fingerprint)
+		return;
 
 	sdd->cur_speed = 0;
 
@@ -1080,6 +1114,9 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
 	struct spi_master *master;
 	int ret, irq;
 	char clk_name[16];
+	bool secure_fingerprint = IS_ENABLED(CONFIG_SENSORS_ET5XX_SECURE) &&
+		of_device_is_compatible(pdev->dev.of_node, "samsung,exynos7885-spi") &&
+		of_property_read_bool(pdev->dev.of_node, "secure-mode");
 
 	if (!sci && pdev->dev.of_node) {
 		sci = s3c64xx_spi_parse_dt(&pdev->dev);
@@ -1098,10 +1135,13 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
 		return -ENXIO;
 	}
 
-	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		dev_warn(&pdev->dev, "Failed to get IRQ: %d\n", irq);
-		return irq;
+	irq = -1;
+	if (!secure_fingerprint) {
+		irq = platform_get_irq(pdev, 0);
+		if (irq < 0) {
+			dev_warn(&pdev->dev, "Failed to get IRQ: %d\n", irq);
+			return irq;
+		}
 	}
 
 	master = spi_alloc_master(&pdev->dev,
@@ -1118,6 +1158,7 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
 	sdd->master = master;
 	sdd->cntrlr_info = sci;
 	sdd->pdev = pdev;
+	sdd->secure_fingerprint = secure_fingerprint;
 	sdd->sfr_start = mem_res->start;
 	if (pdev->dev.of_node) {
 		ret = of_alias_get_id(pdev->dev.of_node, "spi");
@@ -1138,6 +1179,9 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
 
 	master->dev.of_node = pdev->dev.of_node;
 	master->bus_num = sdd->port_id;
+	/* The 7885 uses manual controller CS; deassert it at message end. */
+	if (of_device_is_compatible(pdev->dev.of_node, "samsung,exynos7885-spi"))
+		master->set_cs = exynos7885_spi_set_cs;
 	master->setup = s3c64xx_spi_setup;
 	master->cleanup = s3c64xx_spi_cleanup;
 	master->prepare_transfer_hardware = s3c64xx_spi_prepare_transfer;
@@ -1238,17 +1282,21 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
 	spin_lock_init(&sdd->lock);
 	init_completion(&sdd->xfer_completion);
 
-	ret = devm_request_irq(&pdev->dev, irq, s3c64xx_spi_irq, 0,
-				"spi-s3c64xx", sdd);
-	if (ret != 0) {
-		dev_err(&pdev->dev, "Failed to request IRQ %d: %d\n",
-			irq, ret);
-		goto err_pm_put;
-	}
+	if (!sdd->secure_fingerprint) {
+		ret = devm_request_irq(&pdev->dev, irq, s3c64xx_spi_irq, 0,
+					"spi-s3c64xx", sdd);
+		if (ret != 0) {
+			dev_err(&pdev->dev, "Failed to request IRQ %d: %d\n",
+				irq, ret);
+			goto err_pm_put;
+		}
 
-	writel(S3C64XX_SPI_INT_RX_OVERRUN_EN | S3C64XX_SPI_INT_RX_UNDERRUN_EN |
-	       S3C64XX_SPI_INT_TX_OVERRUN_EN | S3C64XX_SPI_INT_TX_UNDERRUN_EN,
-	       sdd->regs + S3C64XX_SPI_INT_EN);
+		writel(S3C64XX_SPI_INT_RX_OVERRUN_EN | S3C64XX_SPI_INT_RX_UNDERRUN_EN |
+		       S3C64XX_SPI_INT_TX_OVERRUN_EN | S3C64XX_SPI_INT_TX_UNDERRUN_EN,
+		       sdd->regs + S3C64XX_SPI_INT_EN);
+	} else {
+		dev_dbg(&pdev->dev, "secure SPI: registers, CS and IRQ owned by Trustonic\n");
+	}
 
 	ret = devm_spi_register_master(&pdev->dev, master);
 	if (ret != 0) {
@@ -1295,7 +1343,8 @@ static int s3c64xx_spi_remove(struct platform_device *pdev)
 
 	pm_runtime_get_sync(&pdev->dev);
 
-	writel(0, sdd->regs + S3C64XX_SPI_INT_EN);
+	if (!sdd->secure_fingerprint)
+		writel(0, sdd->regs + S3C64XX_SPI_INT_EN);
 
 	if (!is_polling(sdd)) {
 		dma_release_channel(sdd->rx_dma.ch);
@@ -1387,9 +1436,10 @@ static int s3c64xx_spi_runtime_resume(struct device *dev)
 
 	s3c64xx_spi_hwinit(sdd);
 
-	writel(S3C64XX_SPI_INT_RX_OVERRUN_EN | S3C64XX_SPI_INT_RX_UNDERRUN_EN |
-	       S3C64XX_SPI_INT_TX_OVERRUN_EN | S3C64XX_SPI_INT_TX_UNDERRUN_EN,
-	       sdd->regs + S3C64XX_SPI_INT_EN);
+	if (!sdd->secure_fingerprint)
+		writel(S3C64XX_SPI_INT_RX_OVERRUN_EN | S3C64XX_SPI_INT_RX_UNDERRUN_EN |
+		       S3C64XX_SPI_INT_TX_OVERRUN_EN | S3C64XX_SPI_INT_TX_UNDERRUN_EN,
+		       sdd->regs + S3C64XX_SPI_INT_EN);
 
 	return 0;
 
@@ -1446,6 +1496,18 @@ static struct s3c64xx_spi_port_config exynos7_spi_port_config = {
 	.quirks		= S3C64XX_SPI_QUIRK_CS_AUTO,
 };
 
+/* Exynos7885 SPI1 has a 256-byte FIFO (vendor DT).  Use PIO until
+ * the platform DMA controller and request lines are available.
+ */
+static struct s3c64xx_spi_port_config exynos7885_spi_port_config = {
+	.fifo_lvl_mask = { 0x1ff, 0x1ff },
+	.rx_lvl_offset = 15,
+	.tx_st_done = 25,
+	.high_speed = true,
+	.clk_from_cmu = true,
+	.quirks = S3C64XX_SPI_QUIRK_POLL,
+};
+
 static struct s3c64xx_spi_port_config exynos5433_spi_port_config = {
 	.fifo_lvl_mask	= { 0x1ff, 0x7f, 0x7f, 0x7f, 0x7f, 0x1ff},
 	.rx_lvl_offset	= 15,
@@ -1482,6 +1544,9 @@ static const struct of_device_id s3c64xx_spi_dt_match[] = {
 	},
 	{ .compatible = "samsung,exynos7-spi",
 			.data = (void *)&exynos7_spi_port_config,
+	},
+	{ .compatible = "samsung,exynos7885-spi",
+			.data = (void *)&exynos7885_spi_port_config,
 	},
 	{ .compatible = "samsung,exynos5433-spi",
 			.data = (void *)&exynos5433_spi_port_config,
