@@ -930,6 +930,14 @@ config LEDS_ACER_A500
 	  This option enables support for the Power Button LED of
 	  Acer Iconia Tab A500.
 
+config LEDS_RT8547
+	bool "Samsung M20 RT8547 camera flash and torch"
+	depends on OF && GPIOLIB && FIMC_IS_V6_20_0_LEGACY
+	default y if CAMERA_M20
+	help
+	  Provide the RT8547 one-wire camera flash/torch controls and the
+	  Samsung camera-class sysfs interface used by the vendor camera HAL.
+
 comment "LED Triggers"
 source "drivers/leds/trigger/Kconfig"
 

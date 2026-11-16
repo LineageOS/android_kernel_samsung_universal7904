@@ -23,9 +23,13 @@
 #include <linux/mfd/samsung/s2mps14.h>
 #include <linux/mfd/samsung/s2mps15.h>
 #include <linux/mfd/samsung/s2mpu02.h>
+#include <linux/mfd/samsung/s2mpu08.h>
 #include <linux/mfd/samsung/s5m8763.h>
 #include <linux/mfd/samsung/s5m8767.h>
 #include <linux/regmap.h>
+#include <linux/gpio.h>
+#include <linux/of_gpio.h>
+#include <soc/samsung/acpm_mfd.h>
 
 static const struct mfd_cell s5m8751_devs[] = {
 	{ .name = "s5m8751-pmic", },
@@ -93,6 +97,11 @@ static const struct mfd_cell s2mpu02_devs[] = {
 	{ .name = "s2mpu02-regulator", },
 };
 
+static const struct mfd_cell s2mpu08_devs[] = {
+	{ .name = "s2mpu08-regulator", },
+	{ .name = "s2mpu08-rtc", },
+};
+
 #ifdef CONFIG_OF
 static const struct of_device_id sec_dt_match[] = {
 	{
@@ -116,6 +125,12 @@ static const struct of_device_id sec_dt_match[] = {
 	}, {
 		.compatible = "samsung,s2mpu02-pmic",
 		.data = (void *)S2MPU02,
+	}, {
+		.compatible = "samsung,s2mpu08-pmic",
+		.data = (void *)S2MPU08,
+	}, {
+		.compatible = "samsung,s2mpu08mfd",
+		.data = (void *)S2MPU08,
 	}, {
 		/* Sentinel */
 	},
@@ -157,6 +172,13 @@ static bool s2mpu02_volatile(struct device *dev, unsigned int reg)
 	default:
 		return true;
 	}
+}
+
+static bool s2mpu08_volatile(struct device *dev, unsigned int reg)
+{
+	/* Only interrupt masks are exclusively owned by this driver. */
+	return reg < S2MPU08_PMIC_REG_INT1M ||
+	       reg > S2MPU08_PMIC_REG_INT3M;
 }
 
 static bool s5m8763_volatile(struct device *dev, unsigned int reg)
@@ -231,6 +253,21 @@ static const struct regmap_config s2mpu02_regmap_config = {
 	.cache_type = REGCACHE_FLAT,
 };
 
+static const struct regmap_config s2mpu08_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 8,
+	/* Revision-zero LDO35/36 errata also use registers 0x75 and 0xff. */
+	.max_register = 0xff,
+	.volatile_reg = s2mpu08_volatile,
+	.cache_type = REGCACHE_FLAT,
+};
+
+static const struct regmap_config s2mpu08_top_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 8,
+	.max_register = S2MPU08_PMIC_REG_INTSRC_MASK,
+};
+
 static const struct regmap_config s5m8763_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
@@ -252,6 +289,11 @@ static const struct regmap_config s5m8767_regmap_config = {
 static void sec_pmic_dump_rev(struct sec_pmic_dev *sec_pmic)
 {
 	unsigned int val;
+
+	if (sec_pmic->device_type == S2MPU08) {
+		dev_dbg(sec_pmic->dev, "Revision: 0x%x\n", sec_pmic->pmic_rev);
+		return;
+	}
 
 	/* For each device type, the REG_ID is always the first register */
 	if (!regmap_read(sec_pmic->regmap_pmic, S2MPS11_REG_ID, &val))
@@ -334,6 +376,129 @@ static inline unsigned long sec_i2c_get_driver_data(struct i2c_client *i2c,
 	return id->driver_data;
 }
 
+/* Types the APM firmware uses for the TOP and PMIC register spaces (4.4 I2C_ADDR_*). */
+#define S2MPU08_ACPM_TYPE_TOP	0x00
+#define S2MPU08_ACPM_TYPE_PMIC	0x01
+#define S2MPU08_ACPM_TYPE_RTC	0x02
+
+#if defined(CONFIG_EXYNOS_ACPM)
+static int s2mpu08_acpm_reg_read(void *context, unsigned int reg, unsigned int *val)
+{
+	u8 dest;
+	int ret;
+
+	ret = exynos_acpm_read_reg((uintptr_t)context, reg, &dest);
+	if (ret)
+		return ret;
+
+	*val = dest;
+	return 0;
+}
+
+static int s2mpu08_acpm_reg_write(void *context, unsigned int reg, unsigned int val)
+{
+	return exynos_acpm_write_reg((uintptr_t)context, reg, val);
+}
+
+static const struct regmap_bus s2mpu08_acpm_bus = {
+	.reg_read = s2mpu08_acpm_reg_read,
+	.reg_write = s2mpu08_acpm_reg_write,
+};
+
+/* Regmaps that go through ACPM instead of a real I2C client (M20). */
+static int s2mpu08_init_acpm_regmaps(struct sec_pmic_dev *sec_pmic)
+{
+	struct device *dev = &sec_pmic->i2c->dev;
+	int ret;
+
+	acpm_mfd_node = dev->of_node;
+
+	sec_pmic->regmap_top = devm_regmap_init(dev, &s2mpu08_acpm_bus,
+			(void *)(uintptr_t)S2MPU08_ACPM_TYPE_TOP,
+			&s2mpu08_top_regmap_config);
+	if (IS_ERR(sec_pmic->regmap_top))
+		return PTR_ERR(sec_pmic->regmap_top);
+
+	ret = regmap_read(sec_pmic->regmap_top, S2MPU08_PMIC_REG_PMICID,
+			  &sec_pmic->pmic_rev);
+	if (ret)
+		return ret;
+
+	sec_pmic->regmap_pmic = devm_regmap_init(dev, &s2mpu08_acpm_bus,
+			(void *)(uintptr_t)S2MPU08_ACPM_TYPE_PMIC,
+			&s2mpu08_regmap_config);
+	if (IS_ERR(sec_pmic->regmap_pmic))
+		return PTR_ERR(sec_pmic->regmap_pmic);
+
+	sec_pmic->regmap_rtc = devm_regmap_init(dev, &s2mpu08_acpm_bus,
+			(void *)(uintptr_t)S2MPU08_ACPM_TYPE_RTC,
+			&s2mpu08_regmap_config);
+	if (IS_ERR(sec_pmic->regmap_rtc))
+		return PTR_ERR(sec_pmic->regmap_rtc);
+
+	/* Leave both IRQ sources masked until the ALIVE/GPIO IRQ is ported. */
+	return regmap_update_bits(sec_pmic->regmap_top,
+				  S2MPU08_PMIC_REG_INTSRC_MASK,
+				  S2MPU08_IRQSRC_PMIC | S2MPU08_IRQSRC_CODEC,
+				  S2MPU08_IRQSRC_PMIC | S2MPU08_IRQSRC_CODEC);
+}
+#endif
+
+static int s2mpu08_init_regmaps(struct sec_pmic_dev *sec_pmic)
+{
+	struct i2c_client *i2c = sec_pmic->i2c;
+	struct i2c_client *pmic;
+	struct i2c_client *rtc;
+	int ret;
+
+	/*
+	 * The M20 PMIC is reached through the APM firmware (ACPM IPC), not
+	 * plain I2C. The 0x00 (TOP) and 0x01 (PMIC) addresses are ACPM types.
+	 */
+	if (of_property_read_bool(i2c->dev.of_node, "i2c-speedy-address")) {
+#if defined(CONFIG_EXYNOS_ACPM)
+		return s2mpu08_init_acpm_regmaps(sec_pmic);
+#else
+		dev_err(&i2c->dev, "S2MPU08 needs CONFIG_EXYNOS_ACPM\n");
+		return -ENODEV;
+#endif
+	}
+
+	sec_pmic->regmap_top = devm_regmap_init_i2c(i2c,
+					&s2mpu08_top_regmap_config);
+	if (IS_ERR(sec_pmic->regmap_top))
+		return PTR_ERR(sec_pmic->regmap_top);
+
+	ret = regmap_read(sec_pmic->regmap_top, S2MPU08_PMIC_REG_PMICID,
+			  &sec_pmic->pmic_rev);
+	if (ret)
+		return ret;
+
+	/* As in the vendor core, TOP is at 0x00 and PMIC is at 0x01. */
+	pmic = devm_i2c_new_dummy_device(&i2c->dev, i2c->adapter, 0x01);
+	if (IS_ERR(pmic))
+		return PTR_ERR(pmic);
+
+	sec_pmic->regmap_pmic = devm_regmap_init_i2c(pmic,
+						 &s2mpu08_regmap_config);
+	if (IS_ERR(sec_pmic->regmap_pmic))
+		return PTR_ERR(sec_pmic->regmap_pmic);
+
+	rtc = devm_i2c_new_dummy_device(&i2c->dev, i2c->adapter, 0x02);
+	if (IS_ERR(rtc))
+		return PTR_ERR(rtc);
+
+	sec_pmic->regmap_rtc = devm_regmap_init_i2c(rtc, &s2mpu08_regmap_config);
+	if (IS_ERR(sec_pmic->regmap_rtc))
+		return PTR_ERR(sec_pmic->regmap_rtc);
+
+	/* No codec IRQ forwarding yet. Leave both sources masked initially. */
+	return regmap_update_bits(sec_pmic->regmap_top,
+				  S2MPU08_PMIC_REG_INTSRC_MASK,
+				  S2MPU08_IRQSRC_PMIC | S2MPU08_IRQSRC_CODEC,
+				  S2MPU08_IRQSRC_PMIC | S2MPU08_IRQSRC_CODEC);
+}
+
 static int sec_pmic_probe(struct i2c_client *i2c,
 			    const struct i2c_device_id *id)
 {
@@ -353,6 +518,21 @@ static int sec_pmic_probe(struct i2c_client *i2c,
 	sec_pmic->dev = &i2c->dev;
 	sec_pmic->i2c = i2c;
 	sec_pmic->irq = i2c->irq;
+
+	/*
+	 * M20 S2MPU08 has no interrupt cell; the vendor DT gives the IRQ as a
+	 * GPIO (s2mpu08,irq-gpio, level low, on the ALIVE gpa2 bank).
+	 */
+	if (sec_pmic->irq <= 0 && of_property_read_bool(i2c->dev.of_node, "s2mpu08,irq-gpio")) {
+		int gpio = of_get_named_gpio(i2c->dev.of_node, "s2mpu08,irq-gpio", 0);
+
+		if (gpio < 0)
+			return dev_err_probe(&i2c->dev, gpio, "bad s2mpu08,irq-gpio\n");
+		sec_pmic->irq = gpio_to_irq(gpio);
+		if (sec_pmic->irq < 0)
+			return dev_err_probe(&i2c->dev, sec_pmic->irq, "no IRQ for gpio %d\n", gpio);
+		irq_set_irq_type(sec_pmic->irq, IRQ_TYPE_LEVEL_LOW);
+	}
 	device_type = sec_i2c_get_driver_data(i2c, id);
 
 	if (sec_pmic->dev->of_node) {
@@ -395,23 +575,36 @@ static int sec_pmic_probe(struct i2c_client *i2c,
 	case S2MPU02:
 		regmap = &s2mpu02_regmap_config;
 		break;
+	case S2MPU08:
+		regmap = &s2mpu08_regmap_config;
+		break;
 	default:
 		regmap = &sec_regmap_config;
 		break;
 	}
 
-	sec_pmic->regmap_pmic = devm_regmap_init_i2c(i2c, regmap);
-	if (IS_ERR(sec_pmic->regmap_pmic)) {
-		ret = PTR_ERR(sec_pmic->regmap_pmic);
-		dev_err(&i2c->dev, "Failed to allocate register map: %d\n",
-			ret);
-		return ret;
+	if (sec_pmic->device_type == S2MPU08) {
+		ret = s2mpu08_init_regmaps(sec_pmic);
+		if (ret)
+			return ret;
+		sec_pmic->wakeup = of_property_read_bool(i2c->dev.of_node,
+						       "wakeup-source");
+	} else {
+		sec_pmic->regmap_pmic = devm_regmap_init_i2c(i2c, regmap);
+		if (IS_ERR(sec_pmic->regmap_pmic)) {
+			ret = PTR_ERR(sec_pmic->regmap_pmic);
+			dev_err(&i2c->dev, "Failed to allocate register map: %d\n",
+				ret);
+			return ret;
+		}
 	}
 
 	if (pdata && pdata->cfg_pmic_irq)
 		pdata->cfg_pmic_irq();
 
-	sec_irq_init(sec_pmic);
+	ret = sec_irq_init(sec_pmic);
+	if (ret && sec_pmic->device_type == S2MPU08)
+		return ret;
 
 	pm_runtime_set_active(sec_pmic->dev);
 
@@ -451,6 +644,10 @@ static int sec_pmic_probe(struct i2c_client *i2c,
 	case S2MPU02:
 		sec_devs = s2mpu02_devs;
 		num_sec_devs = ARRAY_SIZE(s2mpu02_devs);
+		break;
+	case S2MPU08:
+		sec_devs = s2mpu08_devs;
+		num_sec_devs = ARRAY_SIZE(s2mpu08_devs);
 		break;
 	default:
 		dev_err(&i2c->dev, "Unsupported device type (%lu)\n",
@@ -502,6 +699,9 @@ static int sec_pmic_suspend(struct device *dev)
 	struct i2c_client *i2c = to_i2c_client(dev);
 	struct sec_pmic_dev *sec_pmic = i2c_get_clientdata(i2c);
 
+	if (!sec_pmic->irq_data)
+		return 0;
+
 	if (device_may_wakeup(dev))
 		enable_irq_wake(sec_pmic->irq);
 	/*
@@ -522,6 +722,9 @@ static int sec_pmic_resume(struct device *dev)
 {
 	struct i2c_client *i2c = to_i2c_client(dev);
 	struct sec_pmic_dev *sec_pmic = i2c_get_clientdata(i2c);
+
+	if (!sec_pmic->irq_data)
+		return 0;
 
 	if (device_may_wakeup(dev))
 		disable_irq_wake(sec_pmic->irq);
