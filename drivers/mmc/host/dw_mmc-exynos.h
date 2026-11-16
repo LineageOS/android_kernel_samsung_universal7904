@@ -10,6 +10,24 @@
 
 #define SDMMC_CLKSEL			0x09C
 #define SDMMC_CLKSEL64			0x0A8
+/* Vendor 4.4 dw_mmc-exynos.h:124, 165-174, 283-295. */
+#define SDMMC_AXI_BURST_LEN		0x0B4
+#define EXYNOS7885_CLKSEL_FINE_DRIVE(x)	(((x) & 3) << 22)
+#define EXYNOS7885_CLKSEL_FINE_TUNE	BIT(6)
+/* 4.4 dw_mmc-exynos.h:187-205: HS400_DQS_EN and HS400_DLINE_CTRL fields. */
+#define EXYNOS7885_TXDT_CRC_TIMER(f, i)	((((f) & 0xff) << 16) | (((i) & 0xff) << 8))
+#define EXYNOS7885_RDDQS_EN		BIT(0)
+#define EXYNOS7885_FIFO_CLK_DELAY(x)	(((x) & 0x3) << 16)
+#define EXYNOS7885_CLKSEL_ULP		(BIT(30) | BIT(19))
+#define EXYNOS7885_PHASE7_ENABLE		BIT(31)
+
+/* Vendor 4.4 include/linux/smc.h:43-48; include/crypto/smu.h:15-37. */
+#define EXYNOS7885_SMC_FMP_SECURITY	0xC2001810
+#define EXYNOS7885_SMC_SMU_INIT		0xC2001850
+#define EXYNOS7885_SMC_SMU_RESUME		0xC2001860
+#define EXYNOS7885_SMU_EMBEDDED		0
+#define EXYNOS7885_SMU_INIT		0
+#define EXYNOS7885_FMP_DESC_BYPASS	0
 
 /* Extended Register's Offset */
 #define SDMMC_HS400_DQS_EN		0x180

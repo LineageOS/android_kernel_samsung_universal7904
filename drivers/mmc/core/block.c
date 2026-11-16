@@ -166,6 +166,13 @@ struct mmc_rpmb_data {
 static DEFINE_MUTEX(open_lock);
 
 module_param(perdev_minors, int, 0444);
+
+/* Bring-up safety: refuse every write path to the eMMC (block I/O and raw
+ * MMC_IOC commands) so an untested kernel cannot touch user data.
+ */
+static bool force_ro;
+module_param(force_ro, bool, 0444);
+MODULE_PARM_DESC(force_ro, "Force all eMMC block devices read-only");
 MODULE_PARM_DESC(perdev_minors, "Minors numbers to allocate per device");
 
 static inline int mmc_blk_part_switch(struct mmc_card *card,
@@ -774,6 +781,22 @@ static int mmc_blk_ioctl(struct block_device *bdev, fmode_t mode,
 	struct mmc_blk_data *md;
 	int ret;
 
+	if (force_ro && (cmd == MMC_IOC_CMD || cmd == MMC_IOC_MULTI_CMD))
+		return -EROFS;
+
+	/* Android fs_mgr clears the read-only flag with BLKROSET before rw
+	 * mounts; with force_ro that must not succeed.
+	 */
+	if (force_ro && cmd == BLKROSET) {
+		int n;
+
+		if (get_user(n, (int __user *)arg))
+			return -EFAULT;
+		if (!n)
+			return -EROFS;
+		return -ENOTTY;
+	}
+
 	switch (cmd) {
 	case MMC_IOC_CMD:
 		ret = mmc_blk_check_blkdev(bdev);
@@ -1225,7 +1248,11 @@ static void mmc_blk_issue_flush(struct mmc_queue *mq, struct request *req)
 	struct mmc_card *card = md->queue.card;
 	int ret = 0;
 
-	ret = mmc_flush_cache(card);
+	/* Nothing can be dirty in the cache when every write is refused, and
+	 * the R1b busy wait after CACHE_FLUSH currently times out on m20lte.
+	 */
+	if (!force_ro)
+		ret = mmc_flush_cache(card);
 	blk_mq_end_request(req, ret ? BLK_STS_IOERR : BLK_STS_OK);
 }
 
@@ -2375,7 +2402,7 @@ static struct mmc_blk_data *mmc_blk_alloc_req(struct mmc_card *card,
 	 * Set the read-only status based on the supported commands
 	 * and the write protect switch.
 	 */
-	md->read_only = mmc_blk_readonly(card);
+	md->read_only = mmc_blk_readonly(card) || force_ro;
 
 	md->disk = alloc_disk(perdev_minors);
 	if (md->disk == NULL) {
@@ -2525,6 +2552,9 @@ static long mmc_rpmb_ioctl(struct file *filp, unsigned int cmd,
 	struct mmc_rpmb_data *rpmb = filp->private_data;
 	int ret;
 
+	if (force_ro)
+		return -EROFS;
+
 	switch (cmd) {
 	case MMC_IOC_CMD:
 		ret = mmc_blk_ioctl_cmd(rpmb->md,
@@ -2594,6 +2624,117 @@ static void mmc_blk_rpmb_device_release(struct device *dev)
 	kfree(rpmb);
 }
 
+/*
+ * The secure RPMB proxy borrows the first RPMB partition. Publication and
+ * removal are serialized by this lock; a transfer holds references on the
+ * RPMB device and its block data for its whole duration.
+ */
+static struct mmc_rpmb_data *m20_srpmb;
+/* A mutex: mmc_blk_get() sleeps, and md must stay alive while we take its ref. */
+static DEFINE_MUTEX(m20_srpmb_lock);
+
+/*
+ * m20: one RPMB data transfer for the Exynos secure-RPMB proxy
+ * (dw_mmc-srpmb.c; 4.4 used block_device_operations.srpmb_access).
+ * buf holds blocks * 512 bytes of RPMB frames in wire order.
+ * With force_ro only read-side traffic passes: plain request frames for
+ * counter read (2), data read (4) and result read (5), and the reads.
+ */
+static int __mmc_blk_srpmb_xfer(struct mmc_rpmb_data *rpmb, bool write,
+				bool reliable, unsigned int blocks, void *buf)
+{
+	struct mmc_blk_ioc_data *idata, *idatas[1];
+	struct mmc_queue *mq;
+	struct request *req;
+	size_t len = (size_t)blocks * 512;
+	int ret;
+
+	if (!blocks || len > MMC_IOC_MAX_BYTES)
+		return -EINVAL;
+	if (force_ro && write) {
+		const u8 *f = buf;
+		u16 type = (f[510] << 8) | f[511];
+
+		if (reliable || blocks != 1 ||
+		    (type != 2 && type != 4 && type != 5)) {
+			pr_warn_ratelimited("m20 srpmb: refused write type %#x (force_ro)\n",
+					    type);
+			return -EROFS;
+		}
+	}
+
+	idata = kzalloc(sizeof(*idata), GFP_KERNEL);
+	if (!idata)
+		return -ENOMEM;
+	idata->buf = write ? kmemdup(buf, len, GFP_KERNEL) :
+			     kzalloc(len, GFP_KERNEL);
+	if (!idata->buf) {
+		kfree(idata);
+		return -ENOMEM;
+	}
+	idata->buf_bytes = len;
+	idata->ic.write_flag = write ? (reliable ? BIT(31) : 1) : 0;
+	idata->ic.opcode = write ? MMC_WRITE_MULTIPLE_BLOCK :
+				   MMC_READ_MULTIPLE_BLOCK;
+	idata->ic.flags = MMC_RSP_R1 | MMC_CMD_ADTC;
+	idata->ic.blksz = 512;
+	idata->ic.blocks = blocks;
+	idata->rpmb = rpmb;
+
+	mq = &rpmb->md->queue;
+	req = blk_get_request(mq->queue, write ? REQ_OP_DRV_OUT : REQ_OP_DRV_IN,
+			      0);
+	if (IS_ERR(req)) {
+		ret = PTR_ERR(req);
+		goto out;
+	}
+	idatas[0] = idata;
+	req_to_mmc_queue_req(req)->drv_op = MMC_DRV_OP_IOCTL_RPMB;
+	req_to_mmc_queue_req(req)->drv_op_result = -EIO;
+	req_to_mmc_queue_req(req)->drv_op_data = idatas;
+	req_to_mmc_queue_req(req)->ioc_count = 1;
+	blk_execute_rq(mq->queue, NULL, req, 0);
+	ret = req_to_mmc_queue_req(req)->drv_op_result;
+	blk_put_request(req);
+
+	if (!ret && !write)
+		memcpy(buf, idata->buf, len);
+out:
+	kfree(idata->buf);
+	kfree(idata);
+	return ret;
+}
+
+int mmc_blk_srpmb_xfer(bool write, bool reliable, unsigned int blocks,
+		       void *buf)
+{
+	struct mmc_rpmb_data *rpmb;
+	struct mmc_blk_data *md = NULL;
+	int ret;
+
+	/*
+	 * mmc_blk_remove_rpmb_part() clears m20_srpmb under this mutex before
+	 * md can be released, so a non-NULL rpmb here still has a live md.
+	 */
+	mutex_lock(&m20_srpmb_lock);
+	rpmb = m20_srpmb;
+	if (rpmb) {
+		md = mmc_blk_get(rpmb->md->disk);
+		if (md)
+			get_device(&rpmb->dev);
+	}
+	mutex_unlock(&m20_srpmb_lock);
+	if (!md)
+		return -ENODEV;
+
+	ret = __mmc_blk_srpmb_xfer(rpmb, write, reliable, blocks, buf);
+
+	mmc_blk_put(md);
+	put_device(&rpmb->dev);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(mmc_blk_srpmb_xfer);
+
 static int mmc_blk_alloc_rpmb_part(struct mmc_card *card,
 				   struct mmc_blk_data *md,
 				   unsigned int part_index,
@@ -2639,6 +2780,10 @@ static int mmc_blk_alloc_rpmb_part(struct mmc_card *card,
 	}
 
 	list_add(&rpmb->node, &md->rpmbs);
+	mutex_lock(&m20_srpmb_lock);
+	if (!m20_srpmb)
+		m20_srpmb = rpmb;
+	mutex_unlock(&m20_srpmb_lock);
 
 	string_get_size((u64)size, 512, STRING_UNITS_2,
 			cap_str, sizeof(cap_str));
@@ -2658,6 +2803,10 @@ out_put_device:
 static void mmc_blk_remove_rpmb_part(struct mmc_rpmb_data *rpmb)
 
 {
+	mutex_lock(&m20_srpmb_lock);
+	if (m20_srpmb == rpmb)
+		m20_srpmb = NULL;
+	mutex_unlock(&m20_srpmb_lock);
 	cdev_device_del(&rpmb->chrdev, &rpmb->dev);
 	put_device(&rpmb->dev);
 }
@@ -2676,6 +2825,12 @@ static int mmc_blk_alloc_parts(struct mmc_card *card, struct mmc_blk_data *md)
 		return 0;
 
 	for (idx = 0; idx < card->nr_parts; idx++) {
+		/* m20: with force_ro only the RPMB chardev is needed (for the
+		 * secure-RPMB proxy); skip the boot and GP block devices.
+		 */
+		if (force_ro &&
+		    !(card->part[idx].area_type & MMC_BLK_DATA_AREA_RPMB))
+			continue;
 		if (card->part[idx].area_type & MMC_BLK_DATA_AREA_RPMB) {
 			/*
 			 * RPMB partitions does not provide block access, they

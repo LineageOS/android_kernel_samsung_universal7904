@@ -222,6 +222,8 @@ struct dw_mci {
 	void (*pull_data)(struct dw_mci *host, void *buf, int cnt);
 
 	bool			vqmmc_enabled;
+
+	bool			m20_hwacg;
 	unsigned long		irq_flags; /* IRQ flags */
 	int			irq;
 
