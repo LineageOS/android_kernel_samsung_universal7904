@@ -1,0 +1,9 @@
+config EXYNOS_DECON_LCD
+	depends on EXYNOS_DECON_7885
+	bool "Select LCD panel driver"
+
+config EXYNOS_DECON_LCD_HX83112A_M20
+	bool "HX83112A_M20 LCD driver"
+	depends on EXYNOS_DECON_LCD && EXYNOS_MIPI_DSIM
+	help
+	  Himax HX83112A panel used on the Galaxy M20 (m20lte).
