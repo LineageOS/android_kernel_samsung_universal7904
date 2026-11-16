@@ -185,6 +185,13 @@
 #define DWC3_GSBUSCFG0_INCRBRSTENA	(1 << 0) /* undefined length enable */
 #define DWC3_GSBUSCFG0_INCRBRST_MASK	0xff
 
+/* Samsung/Exynos AXI cache attributes, 4.4 core.h:166-173 */
+#define DWC3_GSBUSCFG0_DESWRREQINFO	(2 << 16)
+#define DWC3_GSBUSCFG0_DATWRREQINFO	(2 << 20)
+#define DWC3_GSBUSCFG0_DESRDREQINFO	(2 << 24)
+#define DWC3_GSBUSCFG0_DATRDREQINFO	(2 << 28)
+#define DWC3_GSBUSCFG1_BREQLIMIT(n)	((n) << 8)
+
 /* Global Debug LSP MUX Select */
 #define DWC3_GDBGLSPMUX_ENDBC		BIT(15)	/* Host only */
 #define DWC3_GDBGLSPMUX_HOSTSELECT(n)	((n) & 0x3fff)
@@ -233,6 +240,7 @@
 
 /* Global Configuration Register */
 #define DWC3_GCTL_PWRDNSCALE(n)	((n) << 19)
+#define DWC3_GCTL_PWRDNSCALE_MASK	DWC3_GCTL_PWRDNSCALE(0x1fff)
 #define DWC3_GCTL_U2RSTECN	BIT(16)
 #define DWC3_GCTL_RAMCLKSEL(x)	(((x) & DWC3_GCTL_CLK_MASK) << 6)
 #define DWC3_GCTL_CLK_BUS	(0)
@@ -390,6 +398,25 @@
 
 /* Global User Control Register 2 */
 #define DWC3_GUCTL2_RST_ACTBITLATER		BIT(14)
+
+#define DWC3_GUCTL_REFCLKPER(n)			((n) << 22)
+#define DWC3_GUCTL_REFCLKPER_MASK		DWC3_GUCTL_REFCLKPER(0x3FF)
+#define DWC3_GUCTL_SPRSCTRLTRANSEN		BIT(17)
+#define DWC3_GUCTL_USBHSTINAUTORETRYEN		BIT(14)
+
+#define DWC3_GRXTHRCFG_USBRXPKTCNTSEL		BIT(29)
+#define DWC3_GRXTHRCFG_USBRXPKTCNT_MASK		(0xf << 24)
+#define DWC3_GRXTHRCFG_USBRXPKTCNT(n)		((n) << 24)
+#define DWC3_GRXTHRCFG_USBMAXRXBURSTSIZE_MASK	(0x1f << 19)
+#define DWC3_GRXTHRCFG_USBMAXRXBURSTSIZE(n)	((n) << 19)
+#define DWC3_GUSB3PIPECTL_DIS_RXDETP3		BIT(28)
+
+#define DWC3_GFLADJ_REFCLK_240MHZDECR_PLS1	BIT(31)
+#define DWC3_GFLADJ_REFCLK_240MHZ_DECR(n)	((n) << 24)
+#define DWC3_GFLADJ_REFCLK_240MHZ_DECR_MASK	DWC3_GFLADJ_REFCLK_240MHZ_DECR(0x7F)
+#define DWC3_GFLADJ_REFCLK_LPM_SEL		BIT(23)
+#define DWC3_GFLADJ_REFCLK_FLADJ(n)		((n) << 8)
+#define DWC3_GFLADJ_REFCLK_FLADJ_MASK		DWC3_GFLADJ_REFCLK_FLADJ(0x3FFF)
 
 /* Global User Control Register 3 */
 #define DWC3_GUCTL3_SPLITDISABLE		BIT(14)
@@ -1305,6 +1332,10 @@ struct dwc3 {
 	unsigned		dis_del_phy_power_chg_quirk:1;
 	unsigned		dis_tx_ipgap_linecheck_quirk:1;
 	unsigned		parkmode_disable_ss_quirk:1;
+	/* Exynos7885 integration (4.4 dwc3_core_config), enabled by the "samsung,exynos-dwusb" parent */
+	unsigned		exynos_core_config:1;
+	unsigned		adj_sof_accuracy:1;
+	unsigned		sparse_transfer_control:1;
 
 	unsigned		tx_de_emphasis_quirk:1;
 	unsigned		tx_de_emphasis:2;

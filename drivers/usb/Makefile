@@ -60,6 +60,8 @@ obj-$(CONFIG_USB_MUSB_HDRC)	+= musb/
 obj-$(CONFIG_USB_CHIPIDEA)	+= chipidea/
 obj-$(CONFIG_USB_RENESAS_USBHS)	+= renesas_usbhs/
 obj-$(CONFIG_USB_GADGET)	+= gadget/
+obj-$(CONFIG_USB_NOTIFY_LAYER)	+= notify/
+obj-$(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)	+= manager/
 
 obj-$(CONFIG_USBIP_CORE)	+= usbip/
 
