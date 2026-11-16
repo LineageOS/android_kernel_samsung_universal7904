@@ -34,6 +34,24 @@
       "parentUuid": "47fe54a0_922346d5",
       "revId": "b2f512ddbbdb45102a7b7d91a69628384ccbbafc",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "8d8b3568_be9db8e6",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 35850
+      },
+      "writtenOn": "2026-11-16T19:00:50Z",
+      "side": 1,
+      "message": "I was suggesting a kernel tree from another platform like s5e8825. Some drivers are common so the diff will still be a little bit shorter. My opinion at least...",
+      "parentUuid": "0530130d_6931df80",
+      "revId": "b2f512ddbbdb45102a7b7d91a69628384ccbbafc",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
   ]
 }
