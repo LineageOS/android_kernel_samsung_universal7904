@@ -8021,6 +8021,22 @@ static int cpu_cgroup_css_online(struct cgroup_subsys_state *css)
 		sched_online_group(tg, parent);
 
 #ifdef CONFIG_UCLAMP_TASK_GROUP
+	/*
+	 * m20lte: the vendor init/power HAL never set top-app uclamp.  4.4 ran
+	 * foreground tasks on the A73 cluster via HMP selective boost; give
+	 * top-app a 50% floor so its threads do not fit an A53 (capacity ~530)
+	 * and get placed on the A73s, and boost frequency where they run.
+	 * Userspace may still override cpu.uclamp.min.
+	 */
+	if (parent == &root_task_group && css->cgroup->kn &&
+	    !strcmp(css->cgroup->kn->name, "top-app")) {
+		uclamp_se_set(&tg->uclamp_req[UCLAMP_MIN],
+			      SCHED_CAPACITY_SCALE / 2, false);
+		tg->uclamp_pct[UCLAMP_MIN] = 5000;	/* 50.00% (UCLAMP_PERCENT_SCALE / 2) */
+		static_branch_enable(&sched_uclamp_used);
+		pr_info("sched: top-app uclamp.min default 50%%\n");
+	}
+
 	/* Propagate the effective uclamp value for the new group */
 	mutex_lock(&uclamp_mutex);
 	rcu_read_lock();
