@@ -1,0 +1,13 @@
+config SENSORS_FINGERPRINT
+	bool "Samsung fingerprint sysfs support"
+
+config SENSORS_ET5XX
+	bool "Egis ET5xx fingerprint sensor"
+	depends on SPI && SENSORS_FINGERPRINT
+
+config SENSORS_ET5XX_SECURE
+	bool "ET5xx Trustonic secure mode on Exynos7885/7904"
+	depends on SENSORS_ET5XX && TRUSTONIC_TEE && ARCH_EXYNOS
+	help
+	  Use the secure-world SPI/power ABI expected by the Samsung ET520
+	  fingerprint HAL. Sensor SPI transfers remain owned by Trustonic.
