@@ -6,12 +6,46 @@
  */
 
 #include <linux/device.h>
+#if IS_ENABLED(CONFIG_EXYNOS_IOVMM)
+#include <linux/exynos_iovmm.h>
+#endif
 #include <linux/mm.h>
 #include <linux/scatterlist.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 
 #include "ion_private.h"
+
+#if IS_ENABLED(CONFIG_EXYNOS_IOVMM)
+struct ion_iovmm_mapping {
+	struct list_head node;
+	struct dma_buf_attachment *attachment;
+	dma_addr_t iova;
+	off_t offset;
+	size_t size;
+	enum dma_data_direction direction;
+	int prot;
+	unsigned int users;
+};
+static LIST_HEAD(ion_iovmm_mappings);
+static DEFINE_MUTEX(ion_iovmm_lock);
+
+static void ion_iovmm_detach(struct dma_buf_attachment *attachment)
+{
+	struct ion_iovmm_mapping *map, *tmp;
+
+	mutex_lock(&ion_iovmm_lock);
+	list_for_each_entry_safe(map, tmp, &ion_iovmm_mappings, node) {
+		if (map->attachment != attachment)
+			continue;
+		WARN_ON(map->users);
+		iovmm_unmap(attachment->dev, map->iova);
+		list_del(&map->node);
+		kfree(map);
+	}
+	mutex_unlock(&ion_iovmm_lock);
+}
+#endif
 
 static struct sg_table *dup_sg_table(struct sg_table *table)
 {
@@ -87,6 +121,9 @@ static void ion_dma_buf_detatch(struct dma_buf *dmabuf,
 	struct ion_buffer *buffer = dmabuf->priv;
 	struct ion_heap *heap = buffer->heap;
 
+#if IS_ENABLED(CONFIG_EXYNOS_IOVMM)
+	ion_iovmm_detach(attachment);
+#endif
 	if (heap->buf_ops.detach)
 		return heap->buf_ops.detach(dmabuf, attachment);
 
@@ -330,6 +367,94 @@ static const struct dma_buf_ops dma_buf_ops = {
 	.vunmap = ion_dma_buf_vunmap,
 	.get_flags = ion_dma_buf_get_flags,
 };
+
+#if IS_ENABLED(CONFIG_EXYNOS_IOVMM)
+/*
+ * 4.4 ion.c:2180-2318 used ion_buffer::sg_table, not DMA-remapped addresses.
+ * Preserve that distinction: decon already maps the attachment for cache
+ * maintenance, and its separate IOVMM address is what DPP actually programs.
+ * Track mappings per attachment rather than borrowing 4.4's ion_buffer layout.
+ */
+dma_addr_t ion_iovmm_map(struct dma_buf_attachment *attachment,
+		       off_t offset, size_t size,
+		       enum dma_data_direction direction, int prot)
+{
+	struct ion_iovmm_mapping *map;
+	struct ion_buffer *buffer;
+	dma_addr_t iova;
+
+	if (!attachment || attachment->dmabuf->ops != &dma_buf_ops ||
+	    offset < 0 || !size)
+		return -EINVAL;
+	buffer = attachment->dmabuf->priv;
+	/* Old ION_FLAG_PROTECTED == 16: never map secure memory nonsecurely. */
+	if ((buffer->flags & 16) || buffer->heap->buf_ops.attach ||
+	    buffer->heap->buf_ops.map_dma_buf ||
+	    (size_t)offset > buffer->size || size > buffer->size - offset)
+		return -EINVAL;
+	if (!(buffer->flags & ION_FLAG_CACHED))
+		prot &= ~IOMMU_CACHE;
+	mutex_lock(&ion_iovmm_lock);
+	list_for_each_entry(map, &ion_iovmm_mappings, node) {
+		if (map->attachment == attachment && map->offset == offset &&
+		    map->size == size && map->direction == direction && map->prot == prot) {
+			if (map->users == UINT_MAX) {
+				iova = -EOVERFLOW;
+				goto out;
+			}
+			map->users++;
+			iova = map->iova;
+			goto out;
+		}
+	}
+	map = kzalloc(sizeof(*map), GFP_KERNEL);
+	if (!map) {
+		iova = -ENOMEM;
+		goto out;
+	}
+	iova = iovmm_map(attachment->dev, buffer->sg_table->sgl,
+			  offset, size, direction, prot);
+	if (IS_ERR_VALUE(iova)) {
+		kfree(map);
+		goto out;
+	}
+	map->attachment = attachment;
+	map->iova = iova;
+	map->offset = offset;
+	map->size = size;
+	map->direction = direction;
+	map->prot = prot;
+	map->users = 1;
+	list_add_tail(&map->node, &ion_iovmm_mappings);
+out:
+	mutex_unlock(&ion_iovmm_lock);
+	return iova;
+}
+EXPORT_SYMBOL_GPL(ion_iovmm_map);
+
+void ion_iovmm_unmap(struct dma_buf_attachment *attachment, dma_addr_t iova)
+{
+	struct ion_iovmm_mapping *map;
+
+	if (!attachment || attachment->dmabuf->ops != &dma_buf_ops)
+		return;
+	mutex_lock(&ion_iovmm_lock);
+	list_for_each_entry(map, &ion_iovmm_mappings, node) {
+		if (map->attachment != attachment || map->iova != iova)
+			continue;
+		if (!--map->users) {
+			iovmm_unmap(attachment->dev, iova);
+			list_del(&map->node);
+			kfree(map);
+		}
+		mutex_unlock(&ion_iovmm_lock);
+		return;
+	}
+	mutex_unlock(&ion_iovmm_lock);
+	dev_warn(attachment->dev, "Unknown ION IOVMM address %pad\n", &iova);
+}
+EXPORT_SYMBOL_GPL(ion_iovmm_unmap);
+#endif
 
 struct dma_buf *ion_dmabuf_alloc(struct ion_device *dev, size_t len,
 				 unsigned int heap_id_mask,
