@@ -20,6 +20,8 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
+#include <linux/kthread.h>
+#include <linux/kernel_stat.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/stat.h>
@@ -232,6 +234,13 @@ static void mci_send_cmd(struct dw_mci_slot *slot, u32 cmd, u32 arg)
 	struct dw_mci *host = slot->host;
 	unsigned int cmd_status = 0;
 
+	/* the CIU clock must run for CMD_UPD_CLK: see dw_mci_start_command() */
+	if (host->m20_hwacg) {
+		u32 fcs = readl(host->regs + 0x0b0);
+
+		if (fcs & BIT(4))
+			writel(fcs & ~BIT(4), host->regs + 0x0b0);
+	}
 	mci_writel(host, CMDARG, arg);
 	wmb(); /* drain writebuffer */
 	dw_mci_wait_while_busy(host, cmd);
@@ -390,6 +399,10 @@ static inline void dw_mci_set_cto(struct dw_mci *host)
 	spin_unlock_irqrestore(&host->irq_lock, irqflags);
 }
 
+static bool force_pio;
+module_param(force_pio, bool, 0444);
+MODULE_PARM_DESC(force_pio, "m20lte bring-up: use PIO instead of IDMAC");
+
 static void dw_mci_start_command(struct dw_mci *host,
 				 struct mmc_command *cmd, u32 cmd_flags)
 {
@@ -398,6 +411,16 @@ static void dw_mci_start_command(struct dw_mci *host,
 		 "start command: ARGR=0x%08x CMDR=0x%08x\n",
 		 cmd->arg, cmd_flags);
 
+	/* 4.4 dw_mci_start_command: HWACG_Q_ACTIVE_DIS before every command.
+	 * Firmware leaves FORCE_CLK_STOP[4] set, so the CMU Q-channel stops
+	 * the eMMC clock once the controller idles and the card goes silent.
+	 */
+	if (host->m20_hwacg) {
+		u32 fcs = readl(host->regs + 0x0b0);
+
+		if (fcs & BIT(4))
+			writel(fcs & ~BIT(4), host->regs + 0x0b0);
+	}
 	mci_writel(host, CMDARG, cmd->arg);
 	wmb(); /* drain writebuffer */
 	dw_mci_wait_while_busy(host, cmd_flags);
@@ -1259,7 +1282,12 @@ static void dw_mci_setup_bus(struct dw_mci_slot *slot, bool force_clkinit)
 
 		/* enable clock; only low power if no SDIO */
 		clk_en_a = SDMMC_CLKEN_ENABLE << slot->id;
-		if (!test_bit(DW_MMC_CARD_NO_LOW_PWR, &slot->flags))
+		/* m20lte bring-up: the eMMC stops answering once the card clock
+		 * has been auto-stopped while idle; keep it running for
+		 * non-removable cards.
+		 */
+		if (!test_bit(DW_MMC_CARD_NO_LOW_PWR, &slot->flags) &&
+		    !(slot->mmc->caps & MMC_CAP_NONREMOVABLE))
 			clk_en_a |= SDMMC_CLKEN_LOW_PWR << slot->id;
 		mci_writel(host, CLKENA, clk_en_a);
 
@@ -1499,6 +1527,15 @@ static void dw_mci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		regs = mci_readl(slot->host, PWREN);
 		regs &= ~(1 << slot->id);
 		mci_writel(slot->host, PWREN, regs);
+		/*
+		 * 4.4 dw_mmc.c:1891-1893 (card-init-hwacg-ctrl): HWACG_Q_ACTIVE_EN
+		 * on power off, so the idle controller can drop Q-active. The next
+		 * command clears it again (dw_mci_start_command).
+		 */
+		if (slot->host->m20_hwacg && READ_ONCE(mmc_m20_full_suspend)) {
+			regs = readl(slot->host->regs + 0x0b0);
+			writel(regs | BIT(4), slot->host->regs + 0x0b0);
+		}
 		break;
 	default:
 		break;
@@ -2887,6 +2924,9 @@ static void dw_mci_init_dma(struct dw_mci *host)
 	* simpler request/acknowledge handshake mechanism and both of them
 	* are regarded as external dma master for dw_mmc.
 	*/
+	if (force_pio)
+		goto no_dma;
+
 	host->use_dma = SDMMC_GET_TRANS_MODE(mci_readl(host, HCON));
 	if (host->use_dma == DMA_INTERFACE_IDMA) {
 		host->use_dma = TRANS_MODE_IDMAC;
@@ -3349,6 +3389,10 @@ int dw_mci_probe(struct dw_mci *host)
 	/* Now that slots are all setup, we can enable card detect */
 	dw_mci_enable_cd(host);
 
+	if (strstr(dev_name(host->dev), "13500000")) {
+		host->m20_hwacg = true;
+	}
+
 	return 0;
 
 err_dmaunmap:
@@ -3456,7 +3500,8 @@ int dw_mci_runtime_resume(struct device *dev)
 	mci_writel(host, CTRL, SDMMC_CTRL_INT_ENABLE);
 
 
-	if (host->slot->mmc->pm_flags & MMC_PM_KEEP_POWER)
+	if ((host->slot->mmc->pm_flags & MMC_PM_KEEP_POWER) ||
+	    (host->slot->mmc->pm_caps & MMC_PM_SKIP_MMC_RESUME_INIT))
 		dw_mci_set_ios(host->slot->mmc, &host->slot->mmc->ios);
 
 	/* Force setup bus to guarantee available clock output */
