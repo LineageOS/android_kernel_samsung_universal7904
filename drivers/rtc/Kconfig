@@ -1967,3 +1967,10 @@ config RTC_DRV_WILCO_EC
 	  be named "rtc_wilco_ec".
 
 endif # RTC_CLASS
+
+config RTC_DRV_S2MPU08
+	tristate "Samsung S2MPU08 RTC driver"
+	depends on MFD_SEC_CORE && RTC_CLASS
+	help
+	  RTC driver for the Samsung S2MPU08 PMIC. Reads the RTC through the
+	  ACPM IPC on boards that use it. WTSR/SMPL settings come from the PMIC DT.
