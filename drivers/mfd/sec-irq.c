@@ -14,6 +14,7 @@
 #include <linux/mfd/samsung/s2mps11.h>
 #include <linux/mfd/samsung/s2mps14.h>
 #include <linux/mfd/samsung/s2mpu02.h>
+#include <linux/mfd/samsung/s2mpu08.h>
 #include <linux/mfd/samsung/s5m8763.h>
 #include <linux/mfd/samsung/s5m8767.h>
 
@@ -226,6 +227,32 @@ static const struct regmap_irq s2mpu02_irqs[] = {
 	},
 };
 
+static const struct regmap_irq s2mpu08_irqs[] = {
+	[S2MPU08_PMIC_IRQ_PWRONR_INT1] = { .reg_offset = 0, .mask = BIT(1) },
+	[S2MPU08_PMIC_IRQ_PWRONF_INT1] = { .reg_offset = 0, .mask = BIT(0) },
+	[S2MPU08_PMIC_IRQ_JIGONBF_INT1] = { .reg_offset = 0, .mask = BIT(2) },
+	[S2MPU08_PMIC_IRQ_JIGONBR_INT1] = { .reg_offset = 0, .mask = BIT(3) },
+	[S2MPU08_PMIC_IRQ_ACOKF_INT1] = { .reg_offset = 0, .mask = BIT(4) },
+	[S2MPU08_PMIC_IRQ_ACOKR_INT1] = { .reg_offset = 0, .mask = BIT(5) },
+	[S2MPU08_PMIC_IRQ_PWRON1S_INT1] = { .reg_offset = 0, .mask = BIT(6) },
+	[S2MPU08_PMIC_IRQ_MREVENT_INT1] = { .reg_offset = 0, .mask = BIT(7) },
+	[S2MPU08_PMIC_IRQ_RTC60S_INT2] = { .reg_offset = 1, .mask = BIT(0) },
+	[S2MPU08_PMIC_IRQ_RTCA1_INT2] = { .reg_offset = 1, .mask = BIT(1) },
+	[S2MPU08_PMIC_IRQ_RTCA0_INT2] = { .reg_offset = 1, .mask = BIT(2) },
+	[S2MPU08_PMIC_IRQ_SMPL_INT2] = { .reg_offset = 1, .mask = BIT(3) },
+	[S2MPU08_PMIC_IRQ_RTC1S_INT2] = { .reg_offset = 1, .mask = BIT(4) },
+	[S2MPU08_PMIC_IRQ_WTSR_INT2] = { .reg_offset = 1, .mask = BIT(5) },
+	[S2MPU08_PMIC_IRQ_SCLDO2_INT2] = { .reg_offset = 1, .mask = BIT(6) },
+	[S2MPU08_PMIC_IRQ_120C_INT3] = { .reg_offset = 2, .mask = BIT(0) },
+	[S2MPU08_PMIC_IRQ_140C_INT3] = { .reg_offset = 2, .mask = BIT(1) },
+	[S2MPU08_PMIC_IRQ_TSD_INT3] = { .reg_offset = 2, .mask = BIT(2) },
+	[S2MPU08_PMIC_IRQ_SCLDO18_INT3] = { .reg_offset = 2, .mask = BIT(3) },
+	[S2MPU08_PMIC_IRQ_SCLDO19_INT3] = { .reg_offset = 2, .mask = BIT(4) },
+	[S2MPU08_PMIC_IRQ_SCLDO35_INT3] = { .reg_offset = 2, .mask = BIT(5) },
+	[S2MPU08_PMIC_IRQ_MRBF_INT3] = { .reg_offset = 2, .mask = BIT(6) },
+	[S2MPU08_PMIC_IRQ_MRBR_INT3] = { .reg_offset = 2, .mask = BIT(7) },
+};
+
 static const struct regmap_irq s5m8767_irqs[] = {
 	[S5M8767_IRQ_PWRR] = {
 		.reg_offset = 0,
@@ -415,6 +442,24 @@ static const struct regmap_irq_chip s2mpu02_irq_chip = {
 	.ack_base = S2MPU02_REG_INT1,
 };
 
+/* The vendor IRQ handler only reads INT1..3: they are clear-on-read. */
+static const struct regmap_irq_chip s2mpu08_irq_chip = {
+	.name = "s2mpu08",
+	.irqs = s2mpu08_irqs,
+	.num_irqs = ARRAY_SIZE(s2mpu08_irqs),
+	.num_regs = S2MPU08_NUM_IRQ_PMIC_REGS,
+	.status_base = S2MPU08_PMIC_REG_INT1,
+	.mask_base = S2MPU08_PMIC_REG_INT1M,
+};
+
+static void s2mpu08_mask_top_irq(void *data)
+{
+	struct sec_pmic_dev *sec_pmic = data;
+
+	regmap_update_bits(sec_pmic->regmap_top, S2MPU08_PMIC_REG_INTSRC_MASK,
+			   S2MPU08_IRQSRC_PMIC, S2MPU08_IRQSRC_PMIC);
+}
+
 static const struct regmap_irq_chip s5m8767_irq_chip = {
 	.name = "s5m8767",
 	.irqs = s5m8767_irqs,
@@ -439,6 +484,7 @@ int sec_irq_init(struct sec_pmic_dev *sec_pmic)
 {
 	int ret = 0;
 	int type = sec_pmic->device_type;
+	unsigned long flags = IRQF_ONESHOT;
 	const struct regmap_irq_chip *sec_irq_chip;
 
 	if (!sec_pmic->irq) {
@@ -473,20 +519,37 @@ int sec_irq_init(struct sec_pmic_dev *sec_pmic)
 	case S2MPU02:
 		sec_irq_chip = &s2mpu02_irq_chip;
 		break;
+	case S2MPU08:
+		sec_irq_chip = &s2mpu08_irq_chip;
+		break;
 	default:
 		dev_err(sec_pmic->dev, "Unknown device type %lu\n",
 			sec_pmic->device_type);
 		return -EINVAL;
 	}
 
+	/* COD3035X shares the S2MPU08 TOP interrupt line on M20. */
+	flags |= type == S2MPU08 ? (IRQF_TRIGGER_LOW | IRQF_SHARED) :
+		 IRQF_TRIGGER_FALLING;
 	ret = devm_regmap_add_irq_chip(sec_pmic->dev, sec_pmic->regmap_pmic,
 				       sec_pmic->irq,
-				       IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+				       flags,
 				       sec_pmic->irq_base, sec_irq_chip,
 				       &sec_pmic->irq_data);
 	if (ret != 0) {
 		dev_err(sec_pmic->dev, "Failed to register IRQ chip: %d\n", ret);
 		return ret;
+	}
+
+	if (type == S2MPU08) {
+		/* Mask TOP before the regmap IRQ chip is released on teardown. */
+		ret = devm_add_action_or_reset(sec_pmic->dev,
+					      s2mpu08_mask_top_irq, sec_pmic);
+		if (ret)
+			return ret;
+		return regmap_update_bits(sec_pmic->regmap_top,
+					  S2MPU08_PMIC_REG_INTSRC_MASK,
+					  S2MPU08_IRQSRC_PMIC, 0);
 	}
 
 	/*
