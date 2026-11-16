@@ -1,0 +1,45 @@
+Samsung Exynos7885/7904 G3D clock controller
+==========================================
+
+CMU_G3D contains the dedicated PLL1417X G3D PLL, the G3D switch-user and
+BUSD muxes, the BUSP divider and GPU/AXI Q-channel gates. BUSD has no
+separate divider. The switch source comes from CMU_TOP's shared PLL0 /2
+through CLKCMU_G3D_SWITCH; the user mux can instead select the 26 MHz
+oscillator.
+
+Required properties:
+- compatible: must be "samsung,exynos7885-cmu-g3d".
+- reg: CMU_G3D register range, base 0x11400000, size 0x8000.
+- #clock-cells: must be 1. IDs are in dt-bindings/clock/exynos7885.h.
+  GATE_AGPU_G3D retains its vendor ID; the added CCF IDs start at 341.
+- clocks: CMU_TOP OSCCLK and DOUT_G3D_SWITCH input clocks.
+- clock-names: "osc", "switch", respectively.
+- power-domains: a phandle to the G3D generic power domain.
+
+The provider is a platform device, not an early OF clock initializer:
+CMU_G3D must be powered before accessing clock registers. Runtime PM is
+not enabled on the provider yet. The BUSP divider retains the firmware
+ratio; the two muxes and the dedicated G3D PLL can be programmed. The
+consumer must switch BUSD away from the PLL before changing its rate.
+The PLL driver rejects programming while BUSD selects the PLL.
+
+Experimental M20 Mali consumer:
+- compatible: "samsung,exynos7904-mali", "arm,mali".
+- vdd-supply: S2MPU08 BUCK5 (vdd_g3d), already exposed by the board PMIC.
+  BUCK5 is externally controlled; its regulator enable operation does not
+  replace PMU domain sequencing. No voltage is selected by this port.
+- clock-names: "g3d", "pll", "busd", "switch", "osc", "cmu", "sysreg",
+  "lhm-sfr", "lhm-p", "lhs-d", "lhs-sfr".
+- clocks: matching clocks GATE_AGPU_G3D, PLL_OUT_G3D, MOUT_G3D_BUSD,
+  MOUT_G3D_SWITCH_USER, OSCCLK (from CMU_TOP), GATE_G3D_CMU,
+  GATE_G3D_SYSREG, GATE_G3D_LHM_SFR, GATE_G3D_LHM_P, GATE_G3D_LHS_D,
+  GATE_G3D_LHS_SFR.
+
+The Exynos platform owns these named clocks and the vdd regulator, instead
+of the Mali core's generic first-clock probing. The existing "clock"
+sysfs attribute uses kHz; CCF uses Hz. Zero releases a manual clock
+request (there is no governor to resume with DVFS disabled). Unsupported
+rates and frequency increases are rejected: OPP/ASV voltage policy is
+not ported. Firmware frequency and voltage are retained at probe.
+The 343000 kHz DVFS metadata in the vendor board variant is not applied
+and does not add a 343 MHz entry to the vendor PLL table.
