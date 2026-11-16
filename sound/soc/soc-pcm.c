@@ -2226,6 +2226,37 @@ static int dpcm_fe_dai_do_trigger(struct snd_pcm_substream *substream, int cmd)
 
 	fe->dpcm[stream].runtime_update = SND_SOC_DPCM_UPDATE_FE;
 
+	switch (cmd) {
+	case SNDRV_PCM_TRIGGER_START:
+	case SNDRV_PCM_TRIGGER_RESUME:
+	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
+		switch (trigger) {
+		case SND_SOC_DPCM_TRIGGER_PRE_POST:
+			trigger = SND_SOC_DPCM_TRIGGER_PRE;
+			break;
+		case SND_SOC_DPCM_TRIGGER_POST_PRE:
+			trigger = SND_SOC_DPCM_TRIGGER_POST;
+			break;
+		default:
+			break;
+		}
+		break;
+	case SNDRV_PCM_TRIGGER_STOP:
+	case SNDRV_PCM_TRIGGER_SUSPEND:
+	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+		switch (trigger) {
+		case SND_SOC_DPCM_TRIGGER_PRE_POST:
+			trigger = SND_SOC_DPCM_TRIGGER_POST;
+			break;
+		case SND_SOC_DPCM_TRIGGER_POST_PRE:
+			trigger = SND_SOC_DPCM_TRIGGER_PRE;
+			break;
+		default:
+			break;
+		}
+		break;
+	}
+
 	switch (trigger) {
 	case SND_SOC_DPCM_TRIGGER_PRE:
 		switch (cmd) {

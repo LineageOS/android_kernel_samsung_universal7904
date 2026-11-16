@@ -1790,3 +1790,14 @@ config SND_SOC_TPA6130A2
 	depends on I2C
 
 endmenu
+
+config SND_SOC_COD3035X
+	bool "Samsung COD3035X codec"
+	depends on I2C && EXYNOS_ACPM && SWITCH
+	select REGMAP_I2C
+
+config SND_SOC_TFA9896
+	bool "NXP TFA9896 smart amplifier (vendor DSP ABI)"
+	depends on I2C
+	select REGMAP_I2C
+	select CRC32
