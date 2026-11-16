@@ -52,6 +52,24 @@
       "parentUuid": "0530130d_6931df80",
       "revId": "b2f512ddbbdb45102a7b7d91a69628384ccbbafc",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "28fc4a27_6c43e2da",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 38440
+      },
+      "writtenOn": "2026-11-16T19:12:25Z",
+      "side": 1,
+      "message": "You’re right, I checked LineageOS/android_kernel_samsung_s5e8825: the Mali driver is the same r26p0 (with tMIx/G71), and SCSC still carries the 7885 platform file. Those are my two biggest commits, so I’ll try taking them from s5e8825. Display, camera, PMIC and battery are different hardware there, so those stay from 4.4. Thanks for the pointer!",
+      "parentUuid": "8d8b3568_be9db8e6",
+      "revId": "b2f512ddbbdb45102a7b7d91a69628384ccbbafc",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
   ]
 }
