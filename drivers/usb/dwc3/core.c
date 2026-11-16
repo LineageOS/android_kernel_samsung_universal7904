@@ -968,6 +968,110 @@ static void dwc3_set_incr_burst_type(struct dwc3 *dwc)
 	dwc3_writel(dwc->regs, DWC3_GSBUSCFG0, cfg);
 }
 
+/*
+ * Exynos7885 DWC3 integration settings. Behaviour of Samsung 4.4
+ * drivers/usb/dwc3/core.c: dwc3_core_init() (GCTL/GUSB2PHYCFG/GFLADJ parts) and
+ * dwc3_core_config() (bus, GUCTL and revision workarounds), applied once the
+ * core and PHYs are up.
+ */
+static void dwc3_exynos_core_config(struct dwc3 *dwc)
+{
+	u32 reg;
+
+	/* GCTL: clock gating off, suspend clock 50 MHz, RAM clock = bus clock */
+	reg = dwc3_readl(dwc->regs, DWC3_GCTL);
+	if (dwc->adj_sof_accuracy)
+		reg &= ~DWC3_GCTL_SOFITPSYNC;
+	reg &= ~DWC3_GCTL_PWRDNSCALE_MASK;
+	reg |= DWC3_GCTL_PWRDNSCALE(50000000 / (16 * 1000));
+	reg |= DWC3_GCTL_DSBLCLKGTNG;
+	reg &= ~0xc0;
+	dwc3_writel(dwc->regs, DWC3_GCTL, reg);
+
+	/* GUSB2PHYCFG: no LPM enable, no auto suspend */
+	reg = dwc3_readl(dwc->regs, DWC3_GUSB2PHYCFG(0));
+	if (dwc->adj_sof_accuracy)
+		reg &= ~DWC3_GUSB2PHYCFG_U2_FREECLK_EXISTS;
+	reg &= ~DWC3_GUSB2PHYCFG_ENBLSLPM;
+	reg &= ~DWC3_GUSB2PHYCFG_SUSPHY;
+	dwc3_writel(dwc->regs, DWC3_GUSB2PHYCFG(0), reg);
+
+	/* AHB bus configuration */
+	reg = dwc3_readl(dwc->regs, DWC3_GSBUSCFG0);
+	reg |= (DWC3_GSBUSCFG0_INCRBRSTENA | DWC3_GSBUSCFG0_INCR16BRSTENA);
+	/*
+	 * AXI cache type for DMA transfers: Cacheable/Modifiable, selectable
+	 * from DWC USB3.0 link version 2.20a.
+	 */
+	if (dwc->revision >= DWC3_REVISION_220A)
+		reg |= (DWC3_GSBUSCFG0_DESWRREQINFO |
+			DWC3_GSBUSCFG0_DATWRREQINFO |
+			DWC3_GSBUSCFG0_DESRDREQINFO |
+			DWC3_GSBUSCFG0_DATRDREQINFO);
+	dwc3_writel(dwc->regs, DWC3_GSBUSCFG0, reg);
+
+	reg = dwc3_readl(dwc->regs, DWC3_GSBUSCFG1);
+	reg |= DWC3_GSBUSCFG1_BREQLIMIT(3);
+	dwc3_writel(dwc->regs, DWC3_GSBUSCFG1, reg);
+
+	/*
+	 * WORKAROUND: GUCTL.USBHSTINAUTORETRYEN set regardless of revision
+	 * (falsely carried-over Retry=1 on SS bulk IN).
+	 */
+	reg = dwc3_readl(dwc->regs, DWC3_GUCTL);
+	reg |= DWC3_GUCTL_USBHSTINAUTORETRYEN;
+	if (dwc->adj_sof_accuracy) {
+		reg &= ~DWC3_GUCTL_REFCLKPER_MASK;
+		reg |= DWC3_GUCTL_REFCLKPER(0x29);
+	}
+	if (dwc->sparse_transfer_control)
+		reg |= DWC3_GUCTL_SPRSCTRLTRANSEN;
+	dwc3_writel(dwc->regs, DWC3_GUCTL, reg);
+
+	if (dwc->revision >= DWC3_REVISION_190A &&
+	    dwc->revision <= DWC3_REVISION_210A) {
+		reg = dwc3_readl(dwc->regs, DWC3_GRXTHRCFG);
+		reg &= ~(DWC3_GRXTHRCFG_USBRXPKTCNT_MASK |
+			 DWC3_GRXTHRCFG_USBMAXRXBURSTSIZE_MASK);
+		reg |= (DWC3_GRXTHRCFG_USBRXPKTCNTSEL |
+			DWC3_GRXTHRCFG_USBRXPKTCNT(3) |
+			DWC3_GRXTHRCFG_USBMAXRXBURSTSIZE(3));
+		dwc3_writel(dwc->regs, DWC3_GRXTHRCFG, reg);
+	}
+
+	/* DWC3 <= 2.10a: PHY low power state entry delay (GUSB3PIPECTL[21:19]) */
+	if (dwc->revision <= DWC3_REVISION_210A) {
+		reg = dwc3_readl(dwc->regs, DWC3_GUSB3PIPECTL(0));
+		reg &= ~DWC3_GUSB3PIPECTL_DEP1P2P3_MASK;
+		reg |= DWC3_GUSB3PIPECTL_DEP1P2P3_EN;
+		dwc3_writel(dwc->regs, DWC3_GUSB3PIPECTL(0), reg);
+	}
+
+	if (dwc->revision >= DWC3_REVISION_250A) {
+		reg = dwc3_readl(dwc->regs, DWC3_GUSB3PIPECTL(0));
+		reg |= DWC3_GUSB3PIPECTL_DIS_RXDETP3;
+		dwc3_writel(dwc->regs, DWC3_GUSB3PIPECTL(0), reg);
+	}
+
+	/* DWC3 <= 2.10a: PORTSC write followed by read race */
+	if (dwc->revision <= DWC3_REVISION_210A) {
+		reg = dwc3_readl(dwc->regs, DWC3_GUSB2PHYCFG(0));
+		reg |= DWC3_GUSB2PHYCFG_PHYIF(1);
+		dwc3_writel(dwc->regs, DWC3_GUSB2PHYCFG(0), reg);
+	}
+
+	if (dwc->adj_sof_accuracy) {
+		reg = dwc3_readl(dwc->regs, DWC3_GFLADJ);
+		reg &= ~DWC3_GFLADJ_REFCLK_240MHZDECR_PLS1;
+		reg &= ~DWC3_GFLADJ_REFCLK_240MHZ_DECR_MASK;
+		reg |= DWC3_GFLADJ_REFCLK_240MHZ_DECR(0xA);
+		reg |= DWC3_GFLADJ_REFCLK_LPM_SEL;
+		reg &= ~DWC3_GFLADJ_REFCLK_FLADJ_MASK;
+		reg |= DWC3_GFLADJ_REFCLK_FLADJ(0x7F0);
+		dwc3_writel(dwc->regs, DWC3_GFLADJ, reg);
+	}
+}
+
 /**
  * dwc3_core_init - Low-level initialization of DWC3 Core
  * @dwc: Pointer to our controller context structure
@@ -1146,6 +1250,13 @@ static int dwc3_core_init(struct dwc3 *dwc)
 		reg = dwc3_readl(dwc->regs, DWC3_LLUCTL);
 		reg |= DWC3_LLUCTL_FORCE_GEN1;
 		dwc3_writel(dwc->regs, DWC3_LLUCTL, reg);
+	}
+
+	if (dwc->exynos_core_config) {
+		/* Adjust SOF accuracy only for revisions >= 2.50a (4.4 core.c:788) */
+		if (dwc->revision < DWC3_REVISION_250A)
+			dwc->adj_sof_accuracy = 0;
+		dwc3_exynos_core_config(dwc);
 	}
 
 	return 0;
@@ -1411,6 +1522,18 @@ static void dwc3_get_properties(struct dwc3 *dwc)
 				"snps,dis-tx-ipgap-linecheck-quirk");
 	dwc->parkmode_disable_ss_quirk = device_property_read_bool(dev,
 				"snps,parkmode-disable-ss-quirk");
+
+	if (dev->parent && of_device_is_compatible(dev->parent->of_node,
+						   "samsung,exynos-dwusb")) {
+		u32 value;
+
+		dwc->exynos_core_config = true;
+		/* 4.4 core.c:1123-1139: Samsung properties on the dwc3 node */
+		if (!device_property_read_u32(dev, "adj-sof-accuracy", &value))
+			dwc->adj_sof_accuracy = !!value;
+		if (!device_property_read_u32(dev, "enable_sprs_transfer", &value))
+			dwc->sparse_transfer_control = !!value;
+	}
 
 	dwc->tx_de_emphasis_quirk = device_property_read_bool(dev,
 				"snps,tx_de_emphasis_quirk");
