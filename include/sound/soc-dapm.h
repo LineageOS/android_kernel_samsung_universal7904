@@ -498,6 +498,12 @@ unsigned int dapm_kcontrol_get_value(const struct snd_kcontrol *kcontrol);
 /* Mostly internal - should not normally be used */
 void dapm_mark_endpoints_dirty(struct snd_soc_card *card);
 
+/* Endpoint queries used by Samsung ABOX FIFO flush events. */
+int snd_soc_dapm_connected_input_ep(struct snd_soc_dapm_widget *widget,
+		struct list_head *list);
+int snd_soc_dapm_connected_output_ep(struct snd_soc_dapm_widget *widget,
+		struct list_head *list);
+
 /* dapm path query */
 int snd_soc_dapm_dai_get_connected_widgets(struct snd_soc_dai *dai, int stream,
 	struct snd_soc_dapm_widget_list **list,

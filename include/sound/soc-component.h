@@ -62,6 +62,10 @@ struct snd_compress_ops {
 	int (*get_codec_caps)(struct snd_soc_component *component,
 			      struct snd_compr_stream *stream,
 			      struct snd_compr_codec_caps *codec);
+	/* Optional DSP decoder output format for DPCM backend fixups. */
+	int (*get_hw_params)(struct snd_soc_component *component,
+			     struct snd_compr_stream *stream,
+			     struct snd_pcm_hw_params *params);
 };
 
 struct snd_soc_component_driver {

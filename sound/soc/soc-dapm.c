@@ -1284,6 +1284,20 @@ static int is_connected_input_ep(struct snd_soc_dapm_widget *widget,
 			is_connected_input_ep, custom_stop_condition);
 }
 
+int snd_soc_dapm_connected_input_ep(struct snd_soc_dapm_widget *widget,
+		struct list_head *list)
+{
+	return is_connected_input_ep(widget, list, NULL);
+}
+EXPORT_SYMBOL_GPL(snd_soc_dapm_connected_input_ep);
+
+int snd_soc_dapm_connected_output_ep(struct snd_soc_dapm_widget *widget,
+		struct list_head *list)
+{
+	return is_connected_output_ep(widget, list, NULL);
+}
+EXPORT_SYMBOL_GPL(snd_soc_dapm_connected_output_ep);
+
 /**
  * snd_soc_dapm_dai_get_connected_widgets - query audio path and it's widgets.
  * @dai: the soc DAI.
