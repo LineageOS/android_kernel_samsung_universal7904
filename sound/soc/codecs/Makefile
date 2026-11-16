@@ -613,3 +613,7 @@ obj-$(CONFIG_SND_SOC_MAX9877)	+= snd-soc-max9877.o
 obj-$(CONFIG_SND_SOC_MAX98504)	+= snd-soc-max98504.o
 obj-$(CONFIG_SND_SOC_SIMPLE_AMPLIFIER)	+= snd-soc-simple-amplifier.o
 obj-$(CONFIG_SND_SOC_TPA6130A2)	+= snd-soc-tpa6130a2.o
+
+snd-soc-cod3035-objs := cod3035x.o codec_speedy.o
+obj-$(CONFIG_SND_SOC_COD3035X) += snd-soc-cod3035.o
+obj-$(CONFIG_SND_SOC_TFA9896) += tfa9896/

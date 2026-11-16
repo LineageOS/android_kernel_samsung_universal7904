@@ -456,7 +456,8 @@ static int soc_compr_set_params_fe(struct snd_compr_stream *cstream,
 	struct snd_pcm_substream *fe_substream =
 		 fe->pcm->streams[cstream->direction].substream;
 	struct snd_soc_dai *cpu_dai = asoc_rtd_to_cpu(fe, 0);
-	int ret, stream;
+	struct snd_soc_component *component;
+	int ret, stream, i;
 
 	if (cstream->direction == SND_COMPRESS_PLAYBACK)
 		stream = SNDRV_PCM_STREAM_PLAYBACK;
@@ -472,6 +473,16 @@ static int soc_compr_set_params_fe(struct snd_compr_stream *cstream,
 	 */
 	memset(&fe->dpcm[fe_substream->stream].hw_params, 0,
 		sizeof(struct snd_pcm_hw_params));
+
+	for_each_rtd_components(fe, i, component) {
+		if (!component->driver->compress_ops ||
+		    !component->driver->compress_ops->get_hw_params)
+			continue;
+		ret = component->driver->compress_ops->get_hw_params(component,
+				cstream, &fe->dpcm[stream].hw_params);
+		if (ret < 0)
+			goto out;
+	}
 
 	fe->dpcm[stream].runtime_update = SND_SOC_DPCM_UPDATE_FE;
 
