@@ -1,0 +1,37 @@
+Samsung Exynos7885/Exynos7904 DISPAUD power domain
+================================================
+
+Required properties:
+- compatible: "samsung,exynos7885-dispaud-pd"
+- reg: the domain's PMU configuration/status window, 0x11c84020, size 0x20
+- #power-domain-cells: 0
+- samsung,pmu: phandle to the Exynos7885 PMU syscon at 0x11c80000
+- need_smc: 0x148f0000, the secure peripheral context identifier used by
+  SMC 0x82000410 (argument 1: 0 save, 1 restore; argument 2: this identifier)
+
+The dedicated compatible selects the vendor CAL domain ID 0xb1380000 and its
+complete on/save/off/status tables; cal_id is therefore not a DT property.
+The vendor power-down-ok = PD_OK_AUD policy is not implemented by this binding:
+audio/modem firmware and ABOX shutdown integration must not be enabled until
+those users participate in runtime PM and their power-down veto is ported.
+See Documentation/arm/samsung/exynos7885-pd.rst for the bring-up restrictions.
+
+Consumers use the standard power-domains property. Replace the Samsung 4.4
+samsung,power-domain = <&pd_dispaud> with power-domains = <&pd_dispaud>.
+Do not keep both properties. The platform bus attaches the consumer to genpd;
+the consumer must use runtime PM, and perform suspend before domain power-off.
+
+Example (inside a root with two address and two size cells):
+
+pd_dispaud: power-domain@11c84020 {
+	compatible = "samsung,exynos7885-dispaud-pd";
+	reg = <0x0 0x11c84020 0x0 0x20>;
+	#power-domain-cells = <0>;
+	samsung,pmu = <&pmu_system_controller>;
+	need_smc = <0x148f0000>;
+};
+
+A future ported display consumer's node contains:
+	power-domains = <&pd_dispaud>;
+
+This binding does not describe MFCMSCL, ISP, CAM, G3D or logical subdomains.
