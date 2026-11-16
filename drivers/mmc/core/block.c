@@ -2594,6 +2594,104 @@ static void mmc_blk_rpmb_device_release(struct device *dev)
 	kfree(rpmb);
 }
 
+/*
+ * The secure RPMB proxy borrows the first RPMB partition. Publication and
+ * removal are serialized by this lock; a transfer holds references on the
+ * RPMB device and its block data for its whole duration.
+ */
+static struct mmc_rpmb_data *m20_srpmb;
+/* A mutex: mmc_blk_get() sleeps, and md must stay alive while we take its ref. */
+static DEFINE_MUTEX(m20_srpmb_lock);
+
+/*
+ * m20: one RPMB data transfer for the Exynos secure-RPMB proxy
+ * (dw_mmc-srpmb.c; 4.4 used block_device_operations.srpmb_access).
+ * buf holds blocks * 512 bytes of RPMB frames in wire order.
+ */
+static int __mmc_blk_srpmb_xfer(struct mmc_rpmb_data *rpmb, bool write,
+				bool reliable, unsigned int blocks, void *buf)
+{
+	struct mmc_blk_ioc_data *idata, *idatas[1];
+	struct mmc_queue *mq;
+	struct request *req;
+	size_t len = (size_t)blocks * 512;
+	int ret;
+
+	if (!blocks || len > MMC_IOC_MAX_BYTES)
+		return -EINVAL;
+
+	idata = kzalloc(sizeof(*idata), GFP_KERNEL);
+	if (!idata)
+		return -ENOMEM;
+	idata->buf = write ? kmemdup(buf, len, GFP_KERNEL) :
+			     kzalloc(len, GFP_KERNEL);
+	if (!idata->buf) {
+		kfree(idata);
+		return -ENOMEM;
+	}
+	idata->buf_bytes = len;
+	idata->ic.write_flag = write ? (reliable ? BIT(31) : 1) : 0;
+	idata->ic.opcode = write ? MMC_WRITE_MULTIPLE_BLOCK :
+				   MMC_READ_MULTIPLE_BLOCK;
+	idata->ic.flags = MMC_RSP_R1 | MMC_CMD_ADTC;
+	idata->ic.blksz = 512;
+	idata->ic.blocks = blocks;
+	idata->rpmb = rpmb;
+
+	mq = &rpmb->md->queue;
+	req = blk_get_request(mq->queue, write ? REQ_OP_DRV_OUT : REQ_OP_DRV_IN,
+			      0);
+	if (IS_ERR(req)) {
+		ret = PTR_ERR(req);
+		goto out;
+	}
+	idatas[0] = idata;
+	req_to_mmc_queue_req(req)->drv_op = MMC_DRV_OP_IOCTL_RPMB;
+	req_to_mmc_queue_req(req)->drv_op_result = -EIO;
+	req_to_mmc_queue_req(req)->drv_op_data = idatas;
+	req_to_mmc_queue_req(req)->ioc_count = 1;
+	blk_execute_rq(mq->queue, NULL, req, 0);
+	ret = req_to_mmc_queue_req(req)->drv_op_result;
+	blk_put_request(req);
+
+	if (!ret && !write)
+		memcpy(buf, idata->buf, len);
+out:
+	kfree(idata->buf);
+	kfree(idata);
+	return ret;
+}
+
+int mmc_blk_srpmb_xfer(bool write, bool reliable, unsigned int blocks,
+		       void *buf)
+{
+	struct mmc_rpmb_data *rpmb;
+	struct mmc_blk_data *md = NULL;
+	int ret;
+
+	/*
+	 * mmc_blk_remove_rpmb_part() clears m20_srpmb under this mutex before
+	 * md can be released, so a non-NULL rpmb here still has a live md.
+	 */
+	mutex_lock(&m20_srpmb_lock);
+	rpmb = m20_srpmb;
+	if (rpmb) {
+		md = mmc_blk_get(rpmb->md->disk);
+		if (md)
+			get_device(&rpmb->dev);
+	}
+	mutex_unlock(&m20_srpmb_lock);
+	if (!md)
+		return -ENODEV;
+
+	ret = __mmc_blk_srpmb_xfer(rpmb, write, reliable, blocks, buf);
+
+	mmc_blk_put(md);
+	put_device(&rpmb->dev);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(mmc_blk_srpmb_xfer);
+
 static int mmc_blk_alloc_rpmb_part(struct mmc_card *card,
 				   struct mmc_blk_data *md,
 				   unsigned int part_index,
@@ -2639,6 +2737,10 @@ static int mmc_blk_alloc_rpmb_part(struct mmc_card *card,
 	}
 
 	list_add(&rpmb->node, &md->rpmbs);
+	mutex_lock(&m20_srpmb_lock);
+	if (!m20_srpmb)
+		m20_srpmb = rpmb;
+	mutex_unlock(&m20_srpmb_lock);
 
 	string_get_size((u64)size, 512, STRING_UNITS_2,
 			cap_str, sizeof(cap_str));
@@ -2658,6 +2760,10 @@ out_put_device:
 static void mmc_blk_remove_rpmb_part(struct mmc_rpmb_data *rpmb)
 
 {
+	mutex_lock(&m20_srpmb_lock);
+	if (m20_srpmb == rpmb)
+		m20_srpmb = NULL;
+	mutex_unlock(&m20_srpmb_lock);
 	cdev_device_del(&rpmb->chrdev, &rpmb->dev);
 	put_device(&rpmb->dev);
 }

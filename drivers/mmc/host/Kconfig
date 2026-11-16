@@ -823,6 +823,14 @@ config MMC_DW_BLUEFIELD
 	  the Synopsys DesignWare Memory Card Interface driver. Select this
 	  option for platforms based on Mellanox BlueField SoC's.
 
+config MMC_SRPMB
+	bool "Exynos eMMC secure RPMB proxy"
+	depends on MMC_DW_EXYNOS && MMC_BLOCK=y
+	help
+	  Runs RPMB transfers on behalf of the secure world (Trustonic
+	  Kinibi), which uses RPMB for secure storage and TA rollback
+	  counters.
+
 config MMC_DW_EXYNOS
 	tristate "Exynos specific extensions for Synopsys DW Memory Card Interface"
 	depends on MMC_DW

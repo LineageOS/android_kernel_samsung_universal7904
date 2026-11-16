@@ -8,6 +8,7 @@
  */
 
 #include <linux/err.h>
+#include <linux/moduleparam.h>
 #include <linux/of.h>
 #include <linux/slab.h>
 #include <linux/stat.h>
@@ -2098,11 +2099,55 @@ out:
 }
 
 /*
+ * Stock 4.4 m20lte has no pm-skip-mmc-resume-init on dwmmc0, so before SoC
+ * sleep it runs the full _mmc_suspend() (cache flush, CMD5 sleep,
+ * mmc_power_off: PWREN off and HWACG re-enabled). Do the same by default;
+ * resume then takes the normal deferred runtime-PM path. Setting
+ * m20_full_suspend=0 restores the pm-skip behaviour.
+ */
+bool mmc_m20_full_suspend = true;
+EXPORT_SYMBOL_GPL(mmc_m20_full_suspend);
+module_param_named(m20_full_suspend, mmc_m20_full_suspend, bool, 0644);
+MODULE_PARM_DESC(m20_full_suspend, "M20: ignore pm-skip-mmc-resume-init, do the 4.4 full eMMC suspend");
+
+/*
  * Suspend callback
  */
 static int mmc_suspend(struct mmc_host *host)
 {
 	int err;
+
+	if ((host->pm_caps & MMC_PM_SKIP_MMC_RESUME_INIT) &&
+	    READ_ONCE(mmc_m20_full_suspend)) {
+		err = _mmc_suspend(host, true);
+		pr_warn("%s: M20 eMMC full suspend (4.4 path): %d\n",
+			mmc_hostname(host), err);
+		if (!err) {
+			pm_runtime_disable(&host->card->dev);
+			pm_runtime_set_suspended(&host->card->dev);
+		}
+		return err;
+	}
+
+	/*
+	 * 4.4 Samsung MMC_PM_SKIP_MMC_RESUME_INIT: flush the cache but leave
+	 * the card selected and powered.  m20lte keeps FSYS on in SoC sleep,
+	 * and re-initialising HS400 (no enhanced strobe, full HS200 tuning)
+	 * on every resume hung once (v222).  mmc_resume() verifies the card
+	 * is still in TRAN state and falls back to a full init otherwise.
+	 */
+	if (host->pm_caps & MMC_PM_SKIP_MMC_RESUME_INIT) {
+		mmc_claim_host(host);
+		err = mmc_flush_cache(host->card);
+		mmc_release_host(host);
+		if (!err) {
+			pr_info("%s: eMMC suspend, init skip\n",
+				mmc_hostname(host));
+			return 0;
+		}
+		pr_err("%s: cache flush failed (%d), full suspend\n",
+		       mmc_hostname(host), err);
+	}
 
 	err = _mmc_suspend(host, true);
 	if (!err) {
@@ -2161,6 +2206,33 @@ static int mmc_shutdown(struct mmc_host *host)
  */
 static int mmc_resume(struct mmc_host *host)
 {
+	if ((host->pm_caps & MMC_PM_SKIP_MMC_RESUME_INIT) &&
+	    !mmc_card_suspended(host->card)) {
+		u32 status = 0;
+		int err;
+
+		mmc_claim_host(host);
+		err = mmc_send_status(host->card, &status);
+		mmc_release_host(host);
+		if (!err && R1_CURRENT_STATE(status) == R1_STATE_TRAN) {
+			pr_info("%s: eMMC resume, init skip\n",
+				mmc_hostname(host));
+			return 0;
+		}
+		pr_warn("%s: eMMC lost state across sleep (err %d status 0x%x), full init\n",
+			mmc_hostname(host), err, status);
+		mmc_claim_host(host);
+		mmc_power_off(host);
+		mmc_card_set_suspended(host->card);
+		mmc_release_host(host);
+		/* Synchronous: a following suspend must not race the init. */
+		err = _mmc_resume(host);
+		if (err)
+			pr_err("%s: eMMC full init after sleep failed: %d\n",
+			       mmc_hostname(host), err);
+		return err;
+	}
+
 	pm_runtime_enable(&host->card->dev);
 	return 0;
 }
