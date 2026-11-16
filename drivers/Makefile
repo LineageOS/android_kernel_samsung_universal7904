@@ -110,6 +110,7 @@ obj-$(CONFIG_OF)		+= usb/
 obj-$(CONFIG_SERIO)		+= input/serio/
 obj-$(CONFIG_GAMEPORT)		+= input/gameport/
 obj-$(CONFIG_INPUT)		+= input/
+obj-$(CONFIG_SENSORS)		+= sensors/
 obj-$(CONFIG_RTC_LIB)		+= rtc/
 obj-y				+= i2c/ i3c/ media/
 obj-$(CONFIG_PPS)		+= pps/
@@ -163,6 +164,7 @@ obj-$(CONFIG_VIRT_DRIVERS)	+= virt/
 obj-$(CONFIG_HYPERV)		+= hv/
 
 obj-$(CONFIG_PM_DEVFREQ)	+= devfreq/
+obj-y				+= bts/
 obj-$(CONFIG_EXTCON)		+= extcon/
 obj-$(CONFIG_MEMORY)		+= memory/
 obj-$(CONFIG_IIO)		+= iio/
@@ -182,6 +184,7 @@ obj-$(CONFIG_NVMEM)		+= nvmem/
 obj-$(CONFIG_FPGA)		+= fpga/
 obj-$(CONFIG_FSI)		+= fsi/
 obj-$(CONFIG_TEE)		+= tee/
+obj-$(CONFIG_TRUSTONIC_TEE)	+= gud/
 obj-$(CONFIG_MULTIPLEXER)	+= mux/
 obj-$(CONFIG_UNISYS_VISORBUS)	+= visorbus/
 obj-$(CONFIG_SIOX)		+= siox/
@@ -189,3 +192,11 @@ obj-$(CONFIG_GNSS)		+= gnss/
 obj-$(CONFIG_INTERCONNECT)	+= interconnect/
 obj-$(CONFIG_COUNTER)		+= counter/
 obj-$(CONFIG_MOST)		+= most/
+
+obj-$(CONFIG_BATTERY_SAMSUNG) += battery_v2/
+obj-$(CONFIG_SWITCH)		+= switch/
+obj-$(CONFIG_USE_MUIC)		+= muic/
+obj-y				+= ccic/
+obj-$(CONFIG_VBUS_NOTIFIER)	+= staging/samsung/sec_notifier/
+
+obj-$(CONFIG_SENSORS_FINGERPRINT) += fingerprint/

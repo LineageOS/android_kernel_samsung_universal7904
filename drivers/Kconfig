@@ -58,6 +58,8 @@ source "drivers/lightnvm/Kconfig"
 
 source "drivers/input/Kconfig"
 
+source "drivers/sensors/Kconfig"
+
 source "drivers/char/Kconfig"
 
 source "drivers/i2c/Kconfig"
@@ -172,6 +174,8 @@ source "drivers/soc/Kconfig"
 
 source "drivers/devfreq/Kconfig"
 
+source "drivers/bts/Kconfig"
+
 source "drivers/extcon/Kconfig"
 
 source "drivers/memory/Kconfig"
@@ -206,6 +210,8 @@ source "drivers/android/Kconfig"
 
 source "drivers/gpu/trace/Kconfig"
 
+source "drivers/gpu/arm/Kconfig"
+
 source "drivers/nvdimm/Kconfig"
 
 source "drivers/dax/Kconfig"
@@ -219,6 +225,8 @@ source "drivers/fpga/Kconfig"
 source "drivers/fsi/Kconfig"
 
 source "drivers/tee/Kconfig"
+
+source "drivers/gud/Kconfig"
 
 source "drivers/mux/Kconfig"
 
@@ -236,3 +244,15 @@ source "drivers/counter/Kconfig"
 
 source "drivers/most/Kconfig"
 endmenu
+
+source "drivers/battery_v2/Kconfig"
+
+source "drivers/switch/Kconfig"
+
+source "drivers/muic/Kconfig"
+
+source "drivers/ccic/Kconfig"
+
+source "drivers/staging/samsung/sec_notifier/Kconfig"
+
+source "drivers/fingerprint/Kconfig"
