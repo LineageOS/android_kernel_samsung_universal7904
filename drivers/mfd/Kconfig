@@ -2171,3 +2171,10 @@ config MFD_INTEL_M10_BMC
 
 endmenu
 endif
+
+config MFD_S2MU004
+	bool "Samsung S2MU004 multifunction device"
+	depends on I2C && OF && !HIBERNATION
+	select MFD_CORE
+	help
+	  M20 charger and interrupt controller. MUIC is not yet enabled.

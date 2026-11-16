@@ -45,6 +45,7 @@ enum sec_device_type {
 	S2MPS14X,
 	S2MPS15X,
 	S2MPU02,
+	S2MPU08,
 };
 
 /**
@@ -53,6 +54,8 @@ enum sec_device_type {
  * @pdata:		Platform data populated with data from DTS
  *			or board files
  * @regmap_pmic:	Regmap associated with PMIC's I2C address
+ * @regmap_top:	S2MPU08 top-level ID and interrupt source register map
+ * @pmic_rev:		S2MPU08 revision, used for LDO35/36 errata
  * @i2c:		I2C client of the main driver
  * @device_type:	Type of device, matches enum sec_device_type
  * @irq_base:		Base IRQ number for device, required for IRQs
@@ -64,6 +67,9 @@ struct sec_pmic_dev {
 	struct device *dev;
 	struct sec_platform_data *pdata;
 	struct regmap *regmap_pmic;
+	struct regmap *regmap_rtc;
+	struct regmap *regmap_top;
+	unsigned int pmic_rev;
 	struct i2c_client *i2c;
 
 	unsigned long device_type;
