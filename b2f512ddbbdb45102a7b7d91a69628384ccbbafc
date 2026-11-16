@@ -70,6 +70,24 @@
       "parentUuid": "8d8b3568_be9db8e6",
       "revId": "b2f512ddbbdb45102a7b7d91a69628384ccbbafc",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "cf538efd_a30d2d95",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 38440
+      },
+      "writtenOn": "2026-11-16T21:18:56Z",
+      "side": 1,
+      "message": "I compared both stacks with the s5e8825 tree. Its r26p0 GPU core supports G71 and matches the stock Mali 11.27 ABI, and about 98.8% of our generic core is already identical, but the M20 clock/ACPM/devfreq integration still has to stay, plus a few memory-management differences. SCSC 12.7 isn\u0027t a drop-in: the 7885 platform code assumes a larger shared-memory layout, misses a callback the 12.7 core calls, and the WLAN interfaces changed. On the current ACK base, copying these drivers would add code rather than reduce it. A Samsung-tree rebase is a separate option, but for now I\u0027d keep the M20 GPU integration and the firmware-matched SCSC stack.",
+      "parentUuid": "28fc4a27_6c43e2da",
+      "revId": "b2f512ddbbdb45102a7b7d91a69628384ccbbafc",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
   ]
 }
