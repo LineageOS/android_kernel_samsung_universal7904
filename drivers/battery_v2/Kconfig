@@ -1,0 +1,46 @@
+# Samsung universal7904 battery_v2/Kconfig, restricted to M20 options.
+menuconfig BATTERY_SAMSUNG
+	bool "Samsung M20 battery management"
+	depends on POWER_SUPPLY && OF && IIO
+	select ALARMTIMER
+	help
+	  Battery policy and Samsung power_supply ABI from universal7904.
+	  MUIC/CCIC cable notifications are not enabled: those controllers and
+	  their notifier/USB manager dependencies require a separate full port.
+
+if BATTERY_SAMSUNG
+config BATTERY_SAMSUNG_V2
+	bool
+	default y
+config BATTERY_SWELLING
+	bool "Swelling protection"
+	default y
+config BATTERY_AGE_FORECAST
+	bool "Battery age forecast"
+	default y
+config AFC_CHARGER_MODE
+	bool "AFC charger mode sysfs"
+	default y
+config BATTERY_NOTIFIER
+	bool "Battery notifier"
+	default y
+config BATTERY_CISD
+	bool "Battery charging statistics"
+	default y
+config FG_FULLCAP_FROM_BATTERY
+	bool "Full capacity from battery data"
+	default y
+endif
+
+config CHARGER_S2MU004
+	bool "Samsung S2MU004 charger"
+	depends on BATTERY_SAMSUNG && MFD_S2MU004
+
+config S2MU004_MODE_CHANGE_BY_TOPOFF
+	bool "S2MU004 topoff mode switching"
+	depends on CHARGER_S2MU004
+	default y
+
+config FUELGAUGE_S2MU004
+	bool "Samsung S2MU004 fuel gauge"
+	depends on BATTERY_SAMSUNG && I2C

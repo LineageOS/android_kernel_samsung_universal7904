@@ -1203,7 +1203,8 @@ __power_supply_register(struct device *parent,
 		pr_warn("%s: Expected proper parent device for '%s'\n",
 			__func__, desc->name);
 
-	if (!desc || !desc->name || !desc->properties || !desc->num_properties)
+	if (!desc || !desc->name || !desc->properties ||
+	    (!desc->num_properties && !desc->allow_empty_properties))
 		return ERR_PTR(-EINVAL);
 
 	for (i = 0; i < desc->num_properties; ++i) {
