@@ -103,3 +103,22 @@ config PHY_EXYNOS5250_SATA
 	  Exynos5250 based SoCs.This SerDes/Phy supports SATA 1.5 Gb/s,
 	  SATA 3.0 Gb/s, SATA 6.0 Gb/s speeds. It supports one SATA host
 	  port to accept one SATA device.
+
+config PHY_EXYNOS_MIPI
+	tristate "Exynos SoC MIPI CSIS/DSIM DPHY driver (4.4 phy-exynos-mipi)"
+	depends on (ARCH_EXYNOS || COMPILE_TEST) && OF
+	select GENERIC_PHY
+	select MFD_SYSCON
+	help
+	  Support for the MIPI CSIS/DSIM D-PHY on Exynos SoCs, with isolation
+	  controlled through the PMU syscon. Ported from the Samsung 4.4 tree.
+
+config PHY_EXYNOS_USBDRD3
+	tristate "Exynos7885 USB DRD PHY (4.4 phy-exynos-usbdrd3)"
+	depends on (ARCH_EXYNOS || COMPILE_TEST) && OF && HAS_IOMEM
+	select GENERIC_PHY
+	select MFD_SYSCON
+	help
+	  USB 2.0 UTMI+ / 3.0 combo PHY of the Exynos7885/7904 DRD controller, with
+	  the Samsung CAL register sequences (phy-exynos-usb3p1). Ported from the
+	  Samsung 4.4 tree; tuning is applied from phy_set_mode().
