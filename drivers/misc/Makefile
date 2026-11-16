@@ -58,3 +58,11 @@ obj-$(CONFIG_UACCE)		+= uacce/
 obj-$(CONFIG_XILINX_SDFEC)	+= xilinx_sdfec.o
 obj-$(CONFIG_HISI_HIKEY_USB)	+= hisi_hikey_usb.o
 obj-$(CONFIG_UID_SYS_STATS)	+= uid_sys_stats.o
+obj-$(CONFIG_SEC_SYSFS)	+= sec_sysfs.o
+
+obj-$(CONFIG_SCSC_CORE) += samsung/scsc/
+obj-$(CONFIG_SCSC_BT) += samsung/scsc_bt/
+obj-$(CONFIG_MCU_IPC) += mcu_ipc/
+obj-$(CONFIG_GNSS_SHMEM_IF)	+= gnss_if/
+obj-$(CONFIG_USIM_DETECT)	+= usim_det/
+obj-$(CONFIG_SEC_SIPC_MODEM_IF) += modem_v1/
