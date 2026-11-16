@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: GPL-2.0
+menuconfig SENSORS
+	bool "Samsung sensor drivers (m20lte)"
+	help
+	  Ported from the Samsung 4.4 kernel for the Galaxy M20.
+
+if SENSORS
+
+config SENSORS_CORE
+	bool "Sensors class (/sys/class/sensors)"
+
+config SENSORS_LSM6DSL
+	tristate "STMicroelectronics LSM6DSL accel/gyro core"
+	depends on SYSFS && SENSORS_CORE
+
+config SENSORS_LSM6DSL_I2C
+	tristate "LSM6DSL I2C"
+	depends on I2C && SENSORS_LSM6DSL
+
+config SENSORS_YAS539
+	tristate "Yamaha YAS539 magnetometer"
+	depends on I2C && SENSORS_CORE
+
+config SENSORS_GP2AP110S
+	tristate "Sharp GP2AP110S proximity/light"
+	depends on I2C && SENSORS_CORE
+
+config SENSORS_TC3XXK
+	tristate "Coreriver TC3XXK grip sensor"
+	depends on I2C && SENSORS_CORE
+
+endif
