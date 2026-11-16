@@ -1,0 +1,98 @@
+Galaxy M20 Exynos7904 CP interface, compile-only 5.10 port
+=======================================================
+
+Source selection
+----------------
+The reference is Samsung universal7904 4.4 arch/arm64/configs/m20lte_defconfig.
+MCU_IPC, SHM_IPC, SEC_SIPC_MODEM_IF, CP_PMUCAL and CP_UART_NOTI are enabled;
+CP_ZEROCOPY is explicitly disabled. SEC_MODEM_SS310AP defaults/selects add
+UMTS_MODEM_SS310AP, LINK_DEVICE_SHMEM, CP_SECURE_BOOT, CP_RAM_LOGGING,
+HW_REV_DETECT, CP_ETDAC_OTP_WA, LINK_DEVICE_NAPI, MODEM_IF_NET_GRO and
+MODEM_IF_QOS. The legacy MEMORY/LLI/HSIC and IOSM implementations are not
+part of this port.
+
+The selected modem_v1 build is 12 core/control/link/io translation units,
+plus modem_argos_notifier when ARGOS and RPS are enabled: about 11,000 C
+lines and 4,800 lines of headers in the 4.4 directory. All sources in that
+directory, including unused variants, total about 18,800 C/header lines.
+Mailbox and shared memory add mcu_ipc.o and shm_ipc.o. Power dependencies
+are pmu-cp.o and cal-if's CP sequence execution, register access engine and
+Exynos7885 sequence tables. This port reuses the existing PMU regmap and
+PMUCAL descriptor format, with a CP-specific secure sequence executor,
+rather than importing the entire clock/cal-if subsystem.
+
+Build selection is tools-config-modem.fragment. Dependency-order stages are
+mailbox/shared memory, CP power, SS310AP control, shared-memory/SBD transport,
+and character/network interfaces. ARGOS and zero-copy stay disabled.
+CP_UART_NOTI is an API in modem_ctrl_ss310ap, not a separate UART driver.
+
+Firmware and startup safety
+---------------------------
+All three CP-facing DT devices (mailbox_cp, shmem, mif_pdata) are disabled
+by default. This is intentional even when the kernel configuration builds
+all interface objects. They do not probe, create endpoints or touch CP
+registers in the delivered DTBs. The CP and log carveouts remain reserved.
+No PMUCAL/PMU CP initcall powers or starts the CP.
+
+Even if those nodes are deliberately enabled for a later hardware test,
+modem_probe does not call modem_on or boot a firmware image. It waits for
+mailbox and shared-memory providers, initializes control/transport, and
+registers endpoints as the vendor driver did. The vendor link initialization
+may clear shared/VSS bookkeeping, and control probe may set an optional
+CP_RST_N GPIO if one is supplied. The M20 DT does not supply that GPIO.
+These operations are not a promise that probing is hardware-safe.
+
+The preserved IOCTL_MODEM_ON operation is the explicit power/start request.
+CP boot/download/reset/dump/security ioctls still exist for vendor userspace.
+The driver only copies firmware bytes supplied through those legacy ioctls;
+it does not request, discover or load a firmware file on its own. Secure
+monitor IDs and the CP_CTRL_NS/S secure access convention match 4.4.
+Power sequence failures are bounded and propagated instead of panicking.
+Never enable nodes, flash, or attempt CP boot without separate approval.
+
+Device tree and memory
+----------------------
+exynos7904-m20lte-modem.dtsi is included by the base M20 DTS and inherited by
+the DECON variant. It retains the 23 original iodev descriptions, including
+all channel IDs, attributes and region-specific endpoint filtering.
+- mailbox_cp: 0x12080000, size 0x180, SPI 55, MCU region 0.
+- mif_pdata: SS310AP/SIPC 5, main-image offset resource 0x10000, SPI 19/217.
+- shmem: CP 0x07900000, VSS 0x00700000, IPC offset 0x08000000, size 8 MiB.
+- cp_memory: 0xf5400000 + 0x08800000 (136 MiB), no-map.
+- cp_log_memory: 0xfdc00000 + 0x02000000 (32 MiB), no-map.
+These reservations match both exynos7884-rmem.dtsi (included by the M20
+common DTS) and exynos7885-rmem.dtsi. No unrelated GNSS/WLBT carveouts or
+mailbox providers are imported. The reserved-memory callback discovers CP
+base/size; firmware MEM tables may override layout only within its bounds.
+No-map regions use ioremap_wc/iounmap, not struct-page vmap aliases.
+
+Userspace ABI
+-------------
+All 38 IOCTL_* definitions in modem_prj.h are unchanged. Vendor payload
+structures and the native/compat dispatch are retained. Internal timestamp
+structures use timespec64, preserving their arm64 size. All 23 DT iodev
+names/IDs/formats/types/links/attributes match the reference, including
+umts_ipc0, umts_ipc1, umts_boot0, umts_rfs0, umts_router and rmnet0 through
+rmnet7. Region-specific optional nodes retain their original conditions.
+Existing sysfs names/groups and the optional CP-log memshare device remain.
+No endpoints are exposed until the disabled DT nodes are explicitly enabled.
+
+TODO(5.10 port) limitations
+--------------------------
+- modem_port.h frequency QoS add/update hooks are explicit no-ops. Samsung
+  ECT tables and ARGOS affinity/load tuning have not been ported; the ECT
+  fallback publishes empty frequency tables. No CPU/MIF/INT frequency votes.
+- mif_set_snapshot does not toggle ESS events or stop ACPM logging.
+- shm_free_reserved_mem intentionally does nothing: CP log memory remains
+  reserved even when androidboot.cp_reserved_mem does not enable logging.
+- Vendor skb priomark/xt_PRIO classification is absent. The network queue
+  selector uses upstream skb->priority; the vendor private PRIO target is
+  not implemented. Device names/ioctl numbers are unchanged, not that policy.
+- MCU mailbox suspend/resume/remove hooks retain their vendor no-op behavior.
+  Probe teardown and hardware suspend/resume remain unvalidated.
+- SPI boot, alternate transports, packet-log and zero-copy paths are not
+  ported. Their presence in reference headers is not a functional claim.
+
+Compilation is not hardware validation. CP secure-monitor behavior, firmware
+layout, cache coherency, IRQ polarity, power/suspend sequencing, throughput,
+RIL operation and teardown/error recovery must all be tested separately.
