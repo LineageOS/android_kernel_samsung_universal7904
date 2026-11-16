@@ -1,0 +1,7 @@
+config VIDEO_EXYNOS_MFC
+	bool "Exynos MFC video codec (M20 5.10 port)"
+	depends on VIDEO_EXYNOS && OF && CAMERA_M20
+	select VIDEOBUF2_DMA_CONTIG
+	help
+	  Samsung MFC v6.x hardware video encoder/decoder used by the
+	  Exynos OMX components (s5p-mfc-dec / s5p-mfc-enc nodes).
