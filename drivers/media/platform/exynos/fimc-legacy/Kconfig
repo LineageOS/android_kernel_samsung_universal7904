@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: GPL-2.0
+# Resolved m20lte symbol set of the Samsung 4.4 fimc-legacy Kconfig tree.
+# Unselected vendor variants (other ISP versions, companions, OIS) are dropped.
+
+config EXYNOS_FIMC_IS
+	def_bool y
+	depends on VIDEO_EXYNOS_FIMC_LEGACY
+
+config FIMC_IS_V6_20_0_LEGACY
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+
+config EXYNOS_DEVICE_MIPI_CSIS_VER3
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+
+config CSIS_V5_0
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+
+config USE_CSI_DMAOUT_FEATURE
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+
+config USE_DIRECT_IS_CONTROL
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+
+config USE_HW_API_COMMON
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+
+config USE_SENSOR_GROUP
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+
+config MC_SCALER_V4_20
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+
+config CAMERA_MC_SCALER_VER2_USE
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+
+config CAMERA_TDNR_VER2_USE
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+
+config VENDER_MCD_LEGACY
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+
+config CAMERA_M20
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+
+config CAMERA_CIS_SELECT
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+config CAMERA_CIS_5E9_OBJ
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+config CAMERA_CIS_4HA_OBJ
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+config CAMERA_CIS_3L6_OBJ
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+config CAMERA_ACT_SELECT
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+config CAMERA_ACT_DW9808_OBJ
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+config CAMERA_FLASH_SELECT
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+config CAMERA_FLASH_GPIO_OBJ
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+config CAMERA_EEPROM_SUPPORT_REAR
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+config CAMERA_EEPROM_SUPPORT_FRONT
+	def_bool y
+	depends on EXYNOS_FIMC_IS
+config CAMERA_EEPROM_SUPPORT_REAR3
+	def_bool y
+	depends on EXYNOS_FIMC_IS

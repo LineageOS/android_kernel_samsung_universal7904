@@ -158,6 +158,19 @@ config VIDEO_DEV
 	  Enables the V4L2 API, used by cameras, analog TV, video grabbers,
 	  radio devices and by some input devices.
 
+config MEDIA_M2M1SHOT2
+	bool "Non-streaming m2m media processing (m2m1shot2) API"
+	depends on DMA_SHARED_BUFFER && SYNC_FILE
+	help
+	  Samsung m2m1shot2 (/dev/fimg2d for G2D), used by the Exynos HWC
+	  libacryl for 2D composition and scaling.
+
+config MEDIA_M2M1SHOT
+	bool "Non-streaming m2m media processing (m2m1shot) API"
+	help
+	  Samsung non-streaming m2m API (/dev/m2m1shot_*), used by the
+	  Exynos libscaler/libcsc userspace for one-shot scaler jobs.
+
 config MEDIA_CONTROLLER
 	bool "Media Controller API"
 	default MEDIA_CAMERA_SUPPORT || MEDIA_ANALOG_TV_SUPPORT || MEDIA_DIGITAL_TV_SUPPORT || MEDIA_PLATFORM_SUPPORT

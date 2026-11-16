@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: GPL-2.0
+menuconfig VIDEO_EXYNOS
+	bool "Samsung Exynos vendor media devices"
+	depends on ARCH_EXYNOS && VIDEO_V4L2
+
+if VIDEO_EXYNOS
+config MEDIA_EXYNOS
+	bool
+	default y
+
+config EXYNOS_MEDIA_DEVICE
+	bool "Exynos media-device glue"
+	default y
+	select MEDIA_CONTROLLER
+	select VIDEO_V4L2_SUBDEV_API
+
+config VIDEO_EXYNOS_FIMC_LEGACY
+	bool "Exynos FIMC-IS legacy camera driver (M20 set)"
+	depends on VIDEO_EXYNOS && EXYNOS_MEDIA_DEVICE && I2C && OF
+	select VIDEOBUF2_DMA_SG
+	select VIDEOBUF2_DMA_CONTIG
+	help
+	  Port of the Samsung 4.4 fimc-legacy FIMC-IS driver, restricted to
+	  the m20lte build set. Compile-tested only; needs the FIMC-IS
+	  firmware blob via request_firmware.
+
+source "drivers/media/platform/exynos/fimc-legacy/Kconfig"
+source "drivers/media/platform/exynos/smfc/Kconfig"
+source "drivers/media/platform/exynos/scaler/Kconfig"
+source "drivers/media/platform/exynos/g2d1shot/Kconfig"
+source "drivers/media/platform/exynos/mfc/Kconfig"
+
+endif
