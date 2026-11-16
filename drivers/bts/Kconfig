@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config EXYNOS7885_BTS
+	bool "Exynos7885/7904 bus traffic shaper"
+	depends on ARCH_EXYNOS && OF
+	help
+	  Build the vendor Exynos7885 TREX QoS/arbitration driver and the
+	  bandwidth API used by the Exynos7904 display controller. A matching
+	  enabled DT node is required before any registers are accessed.
+
+	  Samsung MIF/INT devfreq and display DVFS are not ported. Bandwidth
+	  requirements are tracked, but do not change bus frequencies. This
+	  driver alone therefore cannot guarantee display bandwidth.
+
+config EXYNOS7885_BTS_VM
+	bool "Exynos7885 BTS VM arbitration policy"
+	depends on EXYNOS7885_BTS
+	help
+	  Select the vendor VM ABOX priority and DREX QoS-7 timeout rather
+	  than the default policy. Leave disabled for the stock M20 policy.

@@ -11,4 +11,15 @@ menuconfig ION
 	  If you're not using Android its probably safe to
 	  say N here.
 
+config ION_LEGACY_4_4_ABI
+	bool "Legacy 32-bit Linux 4.4 ION allocation ABI"
+	depends on ION
+	default n
+	help
+	  Accept the 20-byte handle-returning ALLOC, 8-byte MAP and 4-byte
+	  FREE ioctls used by old 32-bit Android vendor libraries. Each open
+	  file has its own handle table alongside the unchanged modern ABI.
+	  Only registered heap IDs are usable; this does not supply Exynos
+	  secure heaps or vendor-specific ioctls and allocation flags.
+
 source "drivers/staging/android/ion/heaps/Kconfig"
