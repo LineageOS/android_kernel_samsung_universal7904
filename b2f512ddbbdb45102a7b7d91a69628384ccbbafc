@@ -16,6 +16,24 @@
       "message": "Maybe you should use a Samsung 5.10 kernel as a base? Would slim down the commits required.",
       "revId": "b2f512ddbbdb45102a7b7d91a69628384ccbbafc",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "0530130d_6931df80",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 38440
+      },
+      "writtenOn": "2026-11-16T18:59:52Z",
+      "side": 1,
+      "message": "Thanks! As far as I know Samsung never released a 5.10 kernel for Exynos 7885/7904 (A30/A40/M20 stopped at 4.4), so there’s no Samsung 5.10 base for this SoC. The other Samsung 5.10 trees are for different Exynos chips and would still need the same 7885 drivers ported. That’s why this sits on ACK android12-5.10 with the 4.4 vendor drivers ported. If you know of a 7885/7904 5.10 tree, I’d happily rebase onto it",
+      "parentUuid": "47fe54a0_922346d5",
+      "revId": "b2f512ddbbdb45102a7b7d91a69628384ccbbafc",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
   ]
 }
