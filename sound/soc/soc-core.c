@@ -1251,6 +1251,7 @@ static int soc_probe_component(struct snd_soc_card *card,
 			dev_info(card->dev,
 				 "%s: disable_route_checks set, ignoring errors on add_routes\n",
 				 __func__);
+			ret = 0;
 		} else {
 			dev_err(card->dev,
 				"%s: snd_soc_dapm_add_routes failed: %d\n",
@@ -1916,6 +1917,7 @@ static int snd_soc_bind_card(struct snd_soc_card *card)
 			dev_info(card->dev,
 				 "%s: disable_route_checks set, ignoring errors on add_routes\n",
 				 __func__);
+			ret = 0;
 		} else {
 			dev_err(card->dev,
 				 "%s: snd_soc_dapm_add_routes failed: %d\n",

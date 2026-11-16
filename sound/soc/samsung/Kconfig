@@ -11,6 +11,20 @@ menuconfig SND_SOC_SAMSUNG
 
 if SND_SOC_SAMSUNG
 
+source "sound/soc/samsung/abox/Kconfig"
+
+config SND_SOC_SAMSUNG_EXYNOS7885
+	bool "Samsung Exynos7885/7904 audio"
+	select SND_SOC_SAMSUNG_ABOX
+
+config SND_SOC_SAMSUNG_EXYNOS7885_COD3035
+	bool "Galaxy M20 COD3035/TFA9896 sound card"
+	depends on I2C && EXYNOS_ACPM && SWITCH
+	select SND_SOC_SAMSUNG_EXYNOS7885
+	select SND_SOC_COD3035X
+	select SND_SOC_TFA9896
+
+
 config SND_S3C24XX_I2S
 	tristate
 

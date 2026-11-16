@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0
+config SND_SOC_SAMSUNG_ABOX
+	bool "Samsung Exynos7885/7904 ABOX DSP"
+	depends on ARCH_EXYNOS && IOMMU_SUPPORT
+	select REGMAP_MMIO
+	select SND_SOC_COMPRESS
+	help
+	  Samsung ABOX DSP, preserving the M20 vendor ALSA and firmware ABI.
+
+config SND_SOC_FM
+	bool "ABOX FM routing controls"
+	depends on SND_SOC_SAMSUNG_ABOX
