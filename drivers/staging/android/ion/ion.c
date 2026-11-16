@@ -27,6 +27,12 @@
 
 #include "ion_private.h"
 
+#ifdef CONFIG_ION_LEGACY_4_4_ABI
+#include <linux/build_bug.h>
+#include <linux/idr.h>
+#include <linux/log2.h>
+#endif
+
 #define ION_CURRENT_ABI_VERSION  2
 
 static struct ion_device *internal_dev;
@@ -161,10 +167,207 @@ static int validate_ioctl_arg(unsigned int cmd, union ion_ioctl_arg *arg)
 	return 0;
 }
 
+#ifdef CONFIG_ION_LEGACY_4_4_ABI
+/* Fixed-width 32-bit userspace layouts, also usable through compat_ptr_ioctl. */
+struct ion_legacy_allocation_data {
+	__u32 len;
+	__u32 align;
+	__u32 heap_id_mask;
+	__u32 flags;
+	__u32 handle;
+};
+
+struct ion_legacy_fd_data {
+	__u32 handle;
+	__s32 fd;
+};
+
+struct ion_legacy_handle_data {
+	__u32 handle;
+};
+
+#define ION_LEGACY_IOC_ALLOC _IOWR('I', 0, struct ion_legacy_allocation_data)
+#define ION_LEGACY_IOC_MAP _IOWR('I', 4, struct ion_legacy_fd_data)
+#define ION_LEGACY_IOC_FREE _IOWR('I', 1, struct ion_legacy_handle_data)
+#define ION_LEGACY_FLAG_CACHED_NEEDS_SYNC BIT(1)
+
+static_assert(ION_LEGACY_IOC_ALLOC == 0xc0144900);
+static_assert(ION_LEGACY_IOC_MAP == 0xc0084904);
+static_assert(ION_LEGACY_IOC_FREE == 0xc0044901);
+
+struct ion_legacy_client {
+	/* Serializes handle lookup/removal and publication to userspace. */
+	struct mutex lock;
+	/* Positive, per-open cookies; never interpreted as modern dma-buf fds. */
+	struct idr handles;
+};
+
+static int ion_legacy_open(struct inode *inode, struct file *filp)
+{
+	struct ion_legacy_client *client;
+
+	client = kzalloc(sizeof(*client), GFP_KERNEL);
+	if (!client)
+		return -ENOMEM;
+
+	mutex_init(&client->lock);
+	idr_init(&client->handles);
+	filp->private_data = client;
+	return 0;
+}
+
+static int ion_legacy_release(struct inode *inode, struct file *filp)
+{
+	struct ion_legacy_client *client = filp->private_data;
+	struct dma_buf *dmabuf;
+	int id;
+
+	/* Final file reference: no ioctl can still be using this client. */
+	idr_for_each_entry(&client->handles, dmabuf, id)
+		dma_buf_put(dmabuf);
+	idr_destroy(&client->handles);
+	kfree(client);
+	return 0;
+}
+
+static long ion_legacy_alloc(struct ion_legacy_client *client, void __user *arg)
+{
+	struct ion_legacy_allocation_data data;
+	struct dma_buf *dmabuf;
+	int handle;
+
+	if (copy_from_user(&data, arg, sizeof(data)))
+		return -EFAULT;
+
+	/* The ACK allocator only guarantees page alignment. */
+	if (data.align && (!is_power_of_2(data.align) || data.align > PAGE_SIZE))
+		return -EINVAL;
+
+	/* Never silently satisfy a protected/vendor allocation with normal RAM. */
+	if (data.flags & ~(ION_FLAG_CACHED | ION_LEGACY_FLAG_CACHED_NEEDS_SYNC))
+		return -EOPNOTSUPP;
+
+	/* No heap-ID translation or fallback: no matching heap means -ENODEV. */
+	dmabuf = ion_dmabuf_alloc(internal_dev, data.len, data.heap_id_mask,
+				  data.flags & ION_FLAG_CACHED);
+	if (IS_ERR(dmabuf))
+		return PTR_ERR(dmabuf);
+
+	handle = idr_alloc(&client->handles, dmabuf, 1, 0, GFP_KERNEL);
+	if (handle < 0) {
+		dma_buf_put(dmabuf);
+		return handle;
+	}
+
+	data.handle = handle;
+	if (copy_to_user(arg, &data, sizeof(data))) {
+		idr_remove(&client->handles, handle);
+		dma_buf_put(dmabuf);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+
+static long ion_legacy_map(struct ion_legacy_client *client, void __user *arg)
+{
+	struct ion_legacy_fd_data data;
+	struct dma_buf *dmabuf;
+	int fd;
+
+	if (copy_from_user(&data, arg, sizeof(data)))
+		return -EFAULT;
+
+	if (!data.handle || data.handle > INT_MAX)
+		return -EINVAL;
+
+	dmabuf = idr_find(&client->handles, data.handle);
+	if (!dmabuf)
+		return -EINVAL;
+
+	/* Reserve first, publish only after copyout: faults must not leak fds. */
+	fd = get_unused_fd_flags(O_CLOEXEC);
+	if (fd < 0)
+		return fd;
+
+	data.fd = fd;
+	if (copy_to_user(arg, &data, sizeof(data))) {
+		put_unused_fd(fd);
+		return -EFAULT;
+	}
+
+	/* The handle retains its reference; the new fd owns another one. */
+	get_dma_buf(dmabuf);
+	fd_install(fd, dmabuf->file);
+	return 0;
+}
+
+static long ion_legacy_free(struct ion_legacy_client *client, void __user *arg)
+{
+	struct ion_legacy_handle_data data;
+	struct dma_buf *dmabuf;
+
+	if (copy_from_user(&data, arg, sizeof(data)))
+		return -EFAULT;
+
+	/* Exynos libion probes the ABI with FREE(0) and only picks the modern
+	 * fd-based path on -ENOTTY; handle 0 is never valid here anyway.
+	 */
+	if (!data.handle)
+		return -ENOTTY;
+	if (data.handle > INT_MAX)
+		return -EINVAL;
+
+	dmabuf = idr_remove(&client->handles, data.handle);
+	if (!dmabuf)
+		return -EINVAL;
+
+	/* Existing MAP fds (and their mappings) keep the buffer alive. */
+	dma_buf_put(dmabuf);
+	return 0;
+}
+
+static long ion_legacy_ioctl(struct file *filp, unsigned int cmd,
+			     unsigned long arg)
+{
+	struct ion_legacy_client *client = filp->private_data;
+	void __user *uarg = (void __user *)arg;
+	long ret;
+
+	mutex_lock(&client->lock);
+	switch (cmd) {
+	case ION_LEGACY_IOC_ALLOC:
+		ret = ion_legacy_alloc(client, uarg);
+		break;
+	case ION_LEGACY_IOC_MAP:
+		ret = ion_legacy_map(client, uarg);
+		break;
+	case ION_LEGACY_IOC_FREE:
+		ret = ion_legacy_free(client, uarg);
+		break;
+	default:
+		ret = -ENOTTY;
+		break;
+	}
+	mutex_unlock(&client->lock);
+	return ret;
+}
+#endif
+
 static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int ret = 0;
 	union ion_ioctl_arg data;
+
+#ifdef CONFIG_ION_LEGACY_4_4_ABI
+	/* Exact command matching keeps the handle and modern fd ABIs separate. */
+	switch (cmd) {
+	case ION_LEGACY_IOC_ALLOC:
+	case ION_LEGACY_IOC_MAP:
+	case ION_LEGACY_IOC_FREE:
+		return ion_legacy_ioctl(filp, cmd, arg);
+	}
+#endif
 
 	if (_IOC_SIZE(cmd) > sizeof(data))
 		return -EINVAL;
@@ -220,6 +423,10 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 static const struct file_operations ion_fops = {
 	.owner          = THIS_MODULE,
+#ifdef CONFIG_ION_LEGACY_4_4_ABI
+	.open           = ion_legacy_open,
+	.release        = ion_legacy_release,
+#endif
 	.unlocked_ioctl = ion_ioctl,
 	.compat_ioctl	= compat_ptr_ioctl,
 };
