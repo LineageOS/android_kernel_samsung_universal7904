@@ -687,8 +687,49 @@ static void s3c24xx_i2c_wait_idle(struct s3c24xx_i2c *i2c)
 		iicstat = readl(i2c->regs + S3C2410_IICSTAT);
 	}
 
-	if (iicstat & S3C2410_IICSTAT_START)
+	if (iicstat & S3C2410_IICSTAT_START) {
+		void __iomem *pin = ioremap(0x139b00a0, 0x20);
+
 		dev_warn(i2c->dev, "timeout waiting for bus idle\n");
+		dev_dbg(i2c->dev, "CON=%08x STAT=%08x DS=%02x LC=%08x clk=%lu irq=%d state=%d msg_num=%d pinCON=%08x pinDAT=%08x\n",
+			 readl(i2c->regs + S3C2410_IICCON),
+			 readl(i2c->regs + S3C2410_IICSTAT),
+			 readb(i2c->regs + S3C2410_IICDS),
+			 readl(i2c->regs + 0x10),
+			 (unsigned long)clk_get_rate(i2c->clk), i2c->irq,
+			 i2c->state, i2c->msg_num,
+			 pin ? readl(pin) : 0, pin ? readl(pin + 4) : 0);
+		{
+			struct platform_device *pd = to_platform_device(i2c->dev);
+			u64 phys = pd->resource[0].start;
+			static unsigned int done;
+			unsigned int bit = phys == 0x13880000 ? 1 : 2;
+
+			if (pin && (done & bit) == 0 &&
+			    (phys == 0x13880000 || phys == 0x13890000)) {
+				u32 con = readl(pin);
+				u32 pud = readl(pin + 8);
+				u32 mask = phys == 0x13880000 ? 0x0000ff00 : 0x00ff0000;
+				u32 pins = phys == 0x13880000 ? 0x0c : 0x30;
+				u32 dat_stuck = readl(pin + 4) & pins;
+				u32 dat_pu, dat_nopu;
+
+				done |= bit;
+				writel(con & ~mask, pin);
+				udelay(300);
+				dat_pu = readl(pin + 4) & pins;
+				writel(pud & ~mask, pin + 8);
+				udelay(300);
+				dat_nopu = readl(pin + 4) & pins;
+				writel(pud, pin + 8);
+				writel(con, pin);
+				dev_dbg(i2c->dev, "lines: con=%08x pud=%08x stuck=%02x input_pull=%02x input_nopull=%02x pins=%02x\n",
+					 con, pud, dat_stuck, dat_pu, dat_nopu, pins);
+			}
+		}
+		if (pin)
+			iounmap(pin);
+	}
 }
 
 /*
@@ -727,7 +768,7 @@ static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
 				dev_err(i2c->dev, "deal with arbitration loss\n");
 		}
 	} else {
-		timeout = wait_event_timeout(i2c->wait, i2c->msg_num == 0, HZ * 5);
+		timeout = wait_event_timeout(i2c->wait, i2c->msg_num == 0, HZ * 1);
 	}
 
 	ret = i2c->msg_idx;
