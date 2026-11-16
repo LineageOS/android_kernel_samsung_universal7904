@@ -993,7 +993,7 @@ int __init early_init_dt_scan_memory(unsigned long node, const char *uname,
 {
 	const char *type = of_get_flat_dt_prop(node, "device_type", NULL);
 	const __be32 *reg, *endp;
-	int l;
+	int l, size_cells;
 	bool hotpluggable;
 
 	/* We are scanning "memory" nodes only */
@@ -1011,11 +1011,25 @@ int __init early_init_dt_scan_memory(unsigned long node, const char *uname,
 
 	pr_debug("memory scan node %s, reg size %d,\n", uname, l);
 
-	while ((endp - reg) >= (dt_root_addr_cells + dt_root_size_cells)) {
+	/*
+	 * m20lte: the Samsung bootloader rewrites the RAM-above-4GiB node in
+	 * the 4.4 layout (#size-cells = 1, 3 cells per entry) even when the
+	 * root uses 2 size cells; accept that instead of dropping the RAM.
+	 */
+	size_cells = dt_root_size_cells;
+	if (IS_ENABLED(CONFIG_ARM64) && dt_root_size_cells == 2 &&
+	    l % ((dt_root_addr_cells + 2) * sizeof(__be32)) &&
+	    !(l % ((dt_root_addr_cells + 1) * sizeof(__be32)))) {
+		size_cells = 1;
+		pr_warn("memory node %s: %d-byte reg, using 1 size cell\n",
+			uname, l);
+	}
+
+	while ((endp - reg) >= (dt_root_addr_cells + size_cells)) {
 		u64 base, size;
 
 		base = dt_mem_next_cell(dt_root_addr_cells, &reg);
-		size = dt_mem_next_cell(dt_root_size_cells, &reg);
+		size = dt_mem_next_cell(size_cells, &reg);
 
 		if (size == 0)
 			continue;
