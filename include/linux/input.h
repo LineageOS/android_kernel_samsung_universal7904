@@ -189,6 +189,8 @@ struct input_dev {
 
 	unsigned int users;
 	bool going_away;
+	/* 4.4 Samsung "enabled" sysfs: device closed by userspace request */
+	bool disabled;
 
 	struct device dev;
 
