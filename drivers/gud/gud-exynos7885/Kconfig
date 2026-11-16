@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-2.0
+config TRUSTONIC_TEE
+	tristate "Trustonic MobiCore TEE for Exynos 7885/7904"
+	depends on ARM64 && OF && MMU
+	depends on ARM64_4K_PAGES
+	select CRYPTO
+	select CRYPTO_SHA1
+	select DMA_SHARED_BUFFER
+	help
+	  Samsung/Trustonic Kinibi driver with the MobiCore 6.3 userspace ABI.
+	  Requires compatible secure firmware and a samsung,exynos-tee DT node.
+
+config TRUSTONIC_TEE_LPAE
+	bool "Trustonic secure-world LPAE page tables"
+	depends on TRUSTONIC_TEE
+	default y
+
+config TRUSTONIC_TEE_DEBUG
+	bool "Trustonic TEE debug logging"
+	depends on TRUSTONIC_TEE
