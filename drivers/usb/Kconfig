@@ -109,6 +109,10 @@ source "drivers/usb/image/Kconfig"
 
 source "drivers/usb/usbip/Kconfig"
 
+source "drivers/usb/notify/Kconfig"
+
+source "drivers/usb/manager/Kconfig"
+
 endif
 
 source "drivers/usb/cdns3/Kconfig"
