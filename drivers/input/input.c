@@ -631,7 +631,7 @@ int input_open_device(struct input_handle *handle)
 		goto out;
 	}
 
-	if (dev->open) {
+	if (dev->open && !dev->disabled) {
 		retval = dev->open(dev);
 		if (retval) {
 			dev->users--;
@@ -690,7 +690,7 @@ void input_close_device(struct input_handle *handle)
 		if (dev->poller)
 			input_dev_poller_stop(dev->poller);
 
-		if (dev->close)
+		if (dev->close && !dev->disabled)
 			dev->close(dev);
 	}
 
@@ -1483,12 +1483,56 @@ static ssize_t input_dev_show_properties(struct device *dev,
 }
 static DEVICE_ATTR(properties, S_IRUGO, input_dev_show_properties, NULL);
 
+/*
+ * 4.4 Samsung input core: /sys/class/input/inputN/enabled.  The power HAL
+ * (powerhint.json TouchscreenEnable via /sys/class/sec/tsp/input/enabled)
+ * closes the touchscreen while the display is off.
+ */
+static ssize_t input_dev_show_enabled(struct device *dev,
+				      struct device_attribute *attr, char *buf)
+{
+	struct input_dev *input_dev = to_input_dev(dev);
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", !input_dev->disabled);
+}
+
+static ssize_t input_dev_store_enabled(struct device *dev,
+				       struct device_attribute *attr,
+				       const char *buf, size_t size)
+{
+	struct input_dev *input_dev = to_input_dev(dev);
+	bool enable;
+	int ret;
+
+	ret = strtobool(buf, &enable);
+	if (ret)
+		return ret;
+	ret = mutex_lock_interruptible(&input_dev->mutex);
+	if (ret)
+		return ret;
+	if (enable && input_dev->disabled) {
+		if (input_dev->users && input_dev->open)
+			ret = input_dev->open(input_dev);
+		if (!ret)
+			input_dev->disabled = false;
+	} else if (!enable && !input_dev->disabled) {
+		input_dev->disabled = true;
+		if (input_dev->users && input_dev->close)
+			input_dev->close(input_dev);
+	}
+	mutex_unlock(&input_dev->mutex);
+	return ret ? ret : size;
+}
+static DEVICE_ATTR(enabled, 0644, input_dev_show_enabled,
+		   input_dev_store_enabled);
+
 static struct attribute *input_dev_attrs[] = {
 	&dev_attr_name.attr,
 	&dev_attr_phys.attr,
 	&dev_attr_uniq.attr,
 	&dev_attr_modalias.attr,
 	&dev_attr_properties.attr,
+	&dev_attr_enabled.attr,
 	NULL
 };
 
