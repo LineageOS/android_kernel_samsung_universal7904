@@ -1,0 +1,1 @@
+source "drivers/video/fbdev/exynos/dpu_7885/Kconfig"

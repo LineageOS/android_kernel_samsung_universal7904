@@ -1,0 +1,54 @@
+config EXYNOS_DECON_7885
+	bool "Samsung Exynos7885 Display system (DPP, DECON, MIPI)"
+	depends on FB && ARCH_EXYNOS
+	depends on EXYNOS_SYSMMU_7885 && EXYNOS_IOVMM
+	depends on EXYNOS7885_BTS && EXYNOS7885_PM_DOMAINS && PHY_EXYNOS_MIPI
+	select LCD_CLASS_DEVICE
+	select BACKLIGHT_CLASS_DEVICE
+	default n
+
+if EXYNOS_DECON_7885
+config EXYNOS_DECON_FB
+	bool "Samsung DECON Framebuffer driver"
+	default y
+
+config EXYNOS_DPP
+	bool "Samsung Exynos Display Post Processor driver"
+	default y
+
+config EXYNOS_MIPI_DSIM
+	bool "Samsung Exynos MIPI-DSI driver"
+	default y
+
+config FB_WINDOW_UPDATE
+	bool "DECON window update mode"
+	default n
+
+config DECON_BLOCKING_MODE
+	bool "DECON blocking mode"
+	default n
+
+config DECON_EVENT_LOG
+	bool "Display sub-system event logger (DECON/DSIM/DPP)"
+	depends on DEBUG_INFO
+	default y
+
+config DECON_HIBER
+	bool "DECON hiber mode"
+	default n
+
+config EXYNOS_SUPPORT_FB_HANDOVER
+	bool "Support bootloader framebuffer handover"
+	default y
+
+config DPU_20
+	bool "New fence operation and New header sync with HWC2.0 (Android P and newer)"
+	default y
+
+config SUPPORT_MASK_LAYER
+	bool "Support mask layer"
+	depends on EXYNOS_DECON_LCD
+	default y
+endif
+
+source "drivers/video/fbdev/exynos/dpu_7885/panels/Kconfig"
