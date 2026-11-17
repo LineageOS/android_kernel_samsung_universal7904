@@ -489,4 +489,21 @@ source "drivers/misc/ocxl/Kconfig"
 source "drivers/misc/cardreader/Kconfig"
 source "drivers/misc/habanalabs/Kconfig"
 source "drivers/misc/uacce/Kconfig"
+
+config SEC_SYSFS
+	bool "Samsung sec sysfs class (/sys/class/sec)"
+	default n
+	help
+	  Samsung "sec" device class used by the vendor drivers
+	  (touch, MUIC, battery, sensors) to publish their sysfs nodes.
+	  Without it sec_device_create() is a stub that creates nothing.
+source "drivers/misc/samsung/scsc/Kconfig"
+source "drivers/misc/samsung/scsc_bt/Kconfig"
+
 endmenu
+
+source "drivers/misc/mcu_ipc/Kconfig"
+source "drivers/misc/gnss_if/Kconfig"
+source "drivers/misc/usim_det/Kconfig"
+
+source "drivers/misc/modem_v1/Kconfig"
