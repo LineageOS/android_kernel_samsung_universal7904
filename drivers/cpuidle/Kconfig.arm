@@ -23,6 +23,14 @@ config ARM_PSCI_CPUIDLE
 	  It provides an idle driver that is capable of detecting and
 	  managing idle states through the PSCI firmware interface.
 
+config ARM_EXYNOS7885_CPUIDLE
+	bool "Exynos7885/7904 CPU idle driver"
+	depends on ARM_PSCI_FW && ARM64 && MFD_SYSCON && EXYNOS7885_PMU_LPM
+	select CPU_IDLE_MULTIPLE_DRIVERS
+	help
+	  WFI plus per-core power down for Exynos7885/7904 (m20lte). The
+	  kernel programs the core's PMU configuration around PSCI suspend.
+
 config ARM_PSCI_CPUIDLE_DOMAIN
 	bool "PSCI CPU idle Domain"
 	depends on ARM_PSCI_CPUIDLE

@@ -893,6 +893,10 @@ i2c_new_client_device(struct i2c_adapter *adap, struct i2c_board_info const *inf
 	strlcpy(client->name, info->type, sizeof(client->name));
 
 	status = i2c_check_addr_validity(client->addr, client->flags);
+	/* Exynos SPEEDY is not real I2C: the main PMIC sits at address 0. */
+	if (status && !client->addr && !(client->flags & I2C_CLIENT_TEN) &&
+	    of_device_is_compatible(adap->dev.of_node, "samsung,exynos-speedy"))
+		status = 0;
 	if (status) {
 		dev_err(&adap->dev, "Invalid %d-bit I2C address 0x%02hx\n",
 			client->flags & I2C_CLIENT_TEN ? 10 : 7, client->addr);

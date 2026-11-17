@@ -610,9 +610,16 @@ static int __init mct_init_dt(struct device_node *np, unsigned int int_type)
 	if (ret)
 		return ret;
 
-	ret = exynos4_clocksource_init();
-	if (ret)
-		return ret;
+	/*
+	 * Vendor "use-clockevent-only" (4.4 m20lte): keep the ARM generic
+	 * counter as clocksource so the vDSO stays usable; MCT only provides
+	 * clock events, which keep running while a core is powered down.
+	 */
+	if (!of_property_read_bool(np, "use-clockevent-only")) {
+		ret = exynos4_clocksource_init();
+		if (ret)
+			return ret;
+	}
 
 	return exynos4_clockevent_init();
 }

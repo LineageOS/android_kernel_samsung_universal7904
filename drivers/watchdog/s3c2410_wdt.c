@@ -160,6 +160,16 @@ static const struct s3c2410_wdt_variant drv_data_exynos7 = {
 		  | QUIRK_HAS_WTCLRINT_REG,
 };
 
+static const struct s3c2410_wdt_variant drv_data_exynos8 = {
+	.disable_reg = EXYNOS5_WDT_DISABLE_REG_OFFSET,
+	.mask_reset_reg = EXYNOS5_WDT_MASK_RESET_REG_OFFSET,
+	.mask_bit = 24,
+	.rst_stat_reg = EXYNOS5_RST_STAT_REG_OFFSET,
+	.rst_stat_bit = 24,	/* A53 WDTRESET, as in the vendor 4.4 driver */
+	.quirks = QUIRK_HAS_PMU_CONFIG | QUIRK_HAS_RST_STAT \
+		  | QUIRK_HAS_WTCLRINT_REG,
+};
+
 static const struct of_device_id s3c2410_wdt_match[] = {
 	{ .compatible = "samsung,s3c2410-wdt",
 	  .data = &drv_data_s3c2410 },
@@ -171,6 +181,8 @@ static const struct of_device_id s3c2410_wdt_match[] = {
 	  .data = &drv_data_exynos5420 },
 	{ .compatible = "samsung,exynos7-wdt",
 	  .data = &drv_data_exynos7 },
+	{ .compatible = "samsung,exynos8-wdt",
+	  .data = &drv_data_exynos8 },
 	{},
 };
 MODULE_DEVICE_TABLE(of, s3c2410_wdt_match);
@@ -488,8 +500,10 @@ static inline unsigned int s3c2410wdt_get_bootstatus(struct s3c2410_wdt *wdt)
 	ret = regmap_read(wdt->pmureg, wdt->drv_data->rst_stat_reg, &rst_stat);
 	if (ret)
 		dev_warn(wdt->dev, "Couldn't get RST_STAT register\n");
-	else if (rst_stat & BIT(wdt->drv_data->rst_stat_bit))
-		return WDIOF_CARDRESET;
+	else {
+		if (rst_stat & BIT(wdt->drv_data->rst_stat_bit))
+			return WDIOF_CARDRESET;
+	}
 
 	return 0;
 }
@@ -605,6 +619,22 @@ static int s3c2410wdt_probe(struct platform_device *pdev)
 	wdt->wdt_device.bootstatus = s3c2410wdt_get_bootstatus(wdt);
 	wdt->wdt_device.parent = dev;
 
+	/*
+	 * m20lte: with tmr_atboot the timer runs from probe and is marked
+	 * WDOG_HW_RUNNING before registration, so the watchdog core pings it
+	 * until watchdogd opens /dev/watchdog.  A kernel freeze before that
+	 * (v216 hung at 7 s in first-stage init) then resets the phone instead
+	 * of leaving it on the boot logo.
+	 */
+	if (tmr_atboot && started == 0) {
+		ret = s3c2410wdt_mask_and_disable_reset(wdt, false);
+		if (ret < 0)
+			goto err_cpufreq;
+		dev_info(dev, "starting watchdog timer\n");
+		s3c2410wdt_start(&wdt->wdt_device);
+		set_bit(WDOG_HW_RUNNING, &wdt->wdt_device.status);
+	}
+
 	ret = watchdog_register_device(&wdt->wdt_device);
 	if (ret)
 		goto err_cpufreq;
@@ -614,8 +644,7 @@ static int s3c2410wdt_probe(struct platform_device *pdev)
 		goto err_unregister;
 
 	if (tmr_atboot && started == 0) {
-		dev_info(dev, "starting watchdog timer\n");
-		s3c2410wdt_start(&wdt->wdt_device);
+		/* started above */
 	} else if (!tmr_atboot) {
 		/* if we're not enabling the watchdog, then ensure it is
 		 * disabled if it has been left running from the bootloader

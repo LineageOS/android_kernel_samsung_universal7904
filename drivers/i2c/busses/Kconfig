@@ -624,6 +624,14 @@ config I2C_EXYNOS5
 	help
 	  High-speed I2C controller on Exynos5 and newer Samsung SoCs.
 
+config EXYNOS_SPEEDY
+	tristate "SAMSUNG EXYNOS SPEEDY driver"
+	depends on ARCH_EXYNOS && OF
+	default y
+	help
+	  Serial Protocol in an EffEctive Digital waY controller
+	  on Exynos based Samsung SoCs (the PMIC bus on M20).
+
 config I2C_GPIO
 	tristate "GPIO-based bitbanging I2C"
 	depends on GPIOLIB || COMPILE_TEST
@@ -963,7 +971,7 @@ config HAVE_S3C2410_I2C
 
 config I2C_S3C2410
 	tristate "S3C/Exynos I2C Driver"
-	depends on HAVE_S3C2410_I2C || COMPILE_TEST
+	depends on HAVE_S3C2410_I2C || (ARM64 && ARCH_EXYNOS) || COMPILE_TEST
 	help
 	  Say Y here to include support for I2C controller in the
 	  Samsung SoCs (S3C, S5Pv210, Exynos).
