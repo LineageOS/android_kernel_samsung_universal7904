@@ -395,6 +395,13 @@ s5pv210_pinctrl_set_eint_wakeup_mask(struct samsung_pinctrl_drv_data *drvdata,
 }
 
 static u32 eint_wake_mask_value = EXYNOS_EINT_WAKEUP_MASK_DISABLED;
+
+/* Exynos7885 system sleep programs the PMU EINT wake mask itself. */
+u32 exynos_get_eint_wake_mask(void)
+{
+	return eint_wake_mask_value;
+}
+EXPORT_SYMBOL_GPL(exynos_get_eint_wake_mask);
 /*
  * irq_chip for wakeup interrupts
  */
