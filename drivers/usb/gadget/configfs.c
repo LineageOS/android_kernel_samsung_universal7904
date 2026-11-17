@@ -82,6 +82,8 @@ struct gadget_info {
 	bool sw_connected;
 	struct work_struct work;
 	struct device *dev;
+	/* Samsung android_usb "functions": NULL means every linked function */
+	char *android_funcs;
 #endif
 };
 
@@ -426,6 +428,9 @@ static void gadget_info_attr_release(struct config_item *item)
 	WARN_ON(!list_empty(&gi->string_list));
 	WARN_ON(!list_empty(&gi->available_func));
 	kfree(gi->composite.gadget_driver.function);
+#ifdef CONFIG_USB_CONFIGFS_UEVENT
+	kfree(gi->android_funcs);
+#endif
 	kfree(gi);
 }
 
@@ -1323,6 +1328,45 @@ static void purge_configs_funcs(struct gadget_info *gi)
 	}
 }
 
+#ifdef CONFIG_USB_CONFIGFS_UEVENT
+/*
+ * m20lte: the Samsung init.*.usb.rc writes android0/functions ("mtp",
+ * "mtp,adb", "rndis,adb"...) before writing UDC; 4.4 then bound only those
+ * functions.  Match a token against the function directory name: "mtp"
+ * matches mtp.0, "adb" matches ffs.adb.
+ */
+static bool android_func_selected(struct gadget_info *gi, struct usb_function *f)
+{
+	const char *item, *dot, *p;
+	size_t plen, tlen;
+
+	if (!gi->android_funcs || !f->fi)
+		return true;
+	item = config_item_name((struct config_item *)&f->fi->group.cg_item);
+	if (!item)
+		return true;
+	dot = strchr(item, '.');
+	plen = dot ? dot - item : strlen(item);
+
+	for (p = gi->android_funcs; *p; p += tlen + (p[tlen] == ',')) {
+		tlen = strcspn(p, ",");
+		if (!tlen)
+			continue;
+		if (tlen == plen && !strncmp(p, item, plen))
+			return true;
+		if (dot && strlen(dot + 1) == tlen && !strncmp(p, dot + 1, tlen))
+			return true;
+	}
+	return false;
+}
+#else
+static inline bool android_func_selected(struct gadget_info *gi,
+					 struct usb_function *f)
+{
+	return true;
+}
+#endif
+
 static int configfs_composite_bind(struct usb_gadget *gadget,
 		struct usb_gadget_driver *gdriver)
 {
@@ -1442,6 +1486,8 @@ static int configfs_composite_bind(struct usb_gadget *gadget,
 		}
 
 		list_for_each_entry_safe(f, tmp, &cfg->func_list, list) {
+			if (!android_func_selected(gi, f))
+				continue;
 			list_del(&f->list);
 			ret = usb_add_function(c, f);
 			if (ret) {
@@ -1780,8 +1826,72 @@ out:
 
 static DEVICE_ATTR(state, S_IRUGO, state_show, NULL);
 
+static ssize_t functions_show(struct device *pdev,
+			      struct device_attribute *attr, char *buf)
+{
+	struct gadget_info *gi = dev_get_drvdata(pdev);
+	ssize_t n;
+
+	mutex_lock(&gi->lock);
+	n = sysfs_emit(buf, "%s\n", gi->android_funcs ? gi->android_funcs : "");
+	mutex_unlock(&gi->lock);
+	return n;
+}
+
+static ssize_t functions_store(struct device *pdev,
+			       struct device_attribute *attr,
+			       const char *buff, size_t size)
+{
+	struct gadget_info *gi = dev_get_drvdata(pdev);
+	char *sel = kstrndup(buff, size, GFP_KERNEL);
+
+	if (!sel)
+		return -ENOMEM;
+	strim(sel);
+	mutex_lock(&gi->lock);
+	kfree(gi->android_funcs);
+	gi->android_funcs = *sel ? sel : NULL;
+	if (!*sel)
+		kfree(sel);
+	mutex_unlock(&gi->lock);
+	return size;
+}
+
+static ssize_t enable_show(struct device *pdev,
+			   struct device_attribute *attr, char *buf)
+{
+	struct gadget_info *gi = dev_get_drvdata(pdev);
+
+	return sprintf(buf, "%d\n", !!gi->composite.gadget_driver.udc_name);
+}
+
+/* "0" unbinds the gadget so the following UDC write can rebind it with the
+ * new function set; "1" is a no-op (the UDC write already connected). */
+static ssize_t enable_store(struct device *pdev,
+			    struct device_attribute *attr,
+			    const char *buff, size_t size)
+{
+	struct gadget_info *gi = dev_get_drvdata(pdev);
+	int enable, ret = 0;
+
+	if (kstrtoint(buff, 0, &enable))
+		return -EINVAL;
+	if (!enable) {
+		mutex_lock(&gi->lock);
+		if (gi->composite.gadget_driver.udc_name)
+			ret = unregister_gadget(gi);
+		mutex_unlock(&gi->lock);
+	}
+	return ret ? ret : size;
+}
+
+static DEVICE_ATTR(functions, 0644, functions_show, functions_store);
+static DEVICE_ATTR(enable, 0644, enable_show, enable_store);
+
 static struct device_attribute *android_usb_attributes[] = {
 	&dev_attr_state,
+	&dev_attr_functions,
+	&dev_attr_enable,
 	NULL
 };
 
