@@ -159,6 +159,14 @@ struct ion_dma_buf_attachment {
 	bool mapped:1;
 };
 
+#if IS_ENABLED(CONFIG_EXYNOS_IOVMM)
+/* Samsung display API; accepts the default, non-protected staging ION heaps. */
+dma_addr_t ion_iovmm_map(struct dma_buf_attachment *attachment,
+		       off_t offset, size_t size,
+		       enum dma_data_direction direction, int prot);
+void ion_iovmm_unmap(struct dma_buf_attachment *attachment, dma_addr_t iova);
+#endif
+
 #ifdef CONFIG_ION
 
 /**
