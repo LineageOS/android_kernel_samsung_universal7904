@@ -1336,3 +1336,5 @@ config TOUCHSCREEN_ZINITIX
 	  module will be called zinitix.
 
 endif
+
+source "drivers/input/touchscreen/himax_83xxx/Kconfig"
