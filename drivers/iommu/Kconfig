@@ -53,6 +53,27 @@ menuconfig IOMMU_SUPPORT
 
 if IOMMU_SUPPORT
 
+config EXYNOS_IOVMM
+	bool "Samsung display IOVMM compatibility layer"
+	depends on EXYNOS_SYSMMU_7885 && ION=y
+	help
+	  The Samsung 4.4 display mapping API and staging ION attachment bridge.
+	  Shares the default DMA domain with the standard DMA API, reserving
+	  the high IOVA window for legacy mappings to avoid allocator overlap.
+	  Does not provide user-pointer mappings or secure/protected heaps.
+
+config EXYNOS_SYSMMU_7885
+	bool "Exynos7885/7904 display System MMU v7"
+	depends on ARM64 && ARM64_4K_PAGES && OF && PM
+	depends on !EXYNOS_IOMMU
+	select IOMMU_API
+	select IOMMU_DMA
+	select OF_IOMMU
+	help
+	  Samsung vendor SYSMMU v7 register layout and shared display domain.
+	  This is not the v1-v5 driver. The display clock and genpd provider
+	  must be available before enabling the corresponding device tree node.
+
 menu "Generic IOMMU Pagetable Support"
 
 # Selected by the actual pagetable implementations
