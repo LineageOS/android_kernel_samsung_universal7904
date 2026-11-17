@@ -965,6 +965,15 @@ config REGULATOR_S2MPA01
 	 This driver controls Samsung S2MPA01 voltage output regulator
 	 via I2C bus. S2MPA01 has 10 Bucks and 26 LDO outputs.
 
+config REGULATOR_S2MPB03
+	tristate "Samsung S2MPB03 camera voltage regulator"
+	depends on I2C && OF
+	help
+	  Support the seven LDOs of the Samsung S2MPB03 camera PMIC.
+	  Includes the vendor DT remote-sense, discharge and slew settings.
+	  Non-DT platform support is not selectable; boards must describe
+	  regulator constraints in their device tree.
+
 config REGULATOR_S2MPS11
 	tristate "Samsung S2MPS11/13/14/15/S2MPU02 voltage regulator"
 	depends on MFD_SEC_CORE || COMPILE_TEST
@@ -973,6 +982,15 @@ config REGULATOR_S2MPS11
 	 output regulator via I2C bus. The chip is comprised of high efficient
 	 Buck converters including Dual-Phase Buck converter, Buck-Boost
 	 converter, various LDOs.
+
+config REGULATOR_S2MPU08
+	tristate "Samsung S2MPU08 voltage regulator"
+	depends on MFD_SEC_CORE
+	depends on OF
+	help
+	  Register the Samsung S2MPU08 AP-owned LDO and buck regulators.
+	  Voltage tables and revision-zero LDO35/36 handling follow the
+	  vendor driver. SPEEDY/ACPM transport must be provided separately.
 
 config REGULATOR_S5M8767
 	tristate "Samsung S5M8767A voltage regulator"
