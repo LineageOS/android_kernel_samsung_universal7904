@@ -36,6 +36,16 @@ static unsigned int get_reboot_mode_magic(struct reboot_mode_driver *reboot,
 		}
 	}
 
+	/* Unknown reasons (e.g. "userrequested") must not keep a stale mode */
+	if (!magic && strcmp(cmd, normal)) {
+		list_for_each_entry(info, &reboot->head, list) {
+			if (!strcmp(info->mode, normal)) {
+				magic = info->magic;
+				break;
+			}
+		}
+	}
+
 	return magic;
 }
 
