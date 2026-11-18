@@ -60,7 +60,7 @@ CONFIG_CP15_BARRIER_EMULATION=y
 CONFIG_SETEND_EMULATION=y
 CONFIG_RANDOMIZE_BASE=y
 # CONFIG_RANDOMIZE_MODULE_REGION_FULL is not set
-CONFIG_CMDLINE="firmware_class.path=/vendor/firmware reserve-fimc=0 clk_ignore_unused androidboot.boot_devices=13500000.dwmmc0 s3c2410_wdt.tmr_atboot=1 panic=5"
+CONFIG_CMDLINE="firmware_class.path=/vendor/firmware reserve-fimc=0 clk_ignore_unused androidboot.boot_devices=13500000.dwmmc0 s3c2410_wdt.tmr_atboot=1 panic=5 transparent_hugepage=never"
 CONFIG_CMDLINE_EXTEND=y
 # CONFIG_EFI is not set
 CONFIG_PM_WAKELOCKS=y
