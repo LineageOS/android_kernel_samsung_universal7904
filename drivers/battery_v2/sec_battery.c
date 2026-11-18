@@ -3362,7 +3362,7 @@ static void sec_bat_slow_chg_detect_work(struct work_struct *work)
 	if (is_not_wireless_type(battery->cable_type)) {
 		if (input_current <= battery->pdata->slow_charging_current &&
 			!is_nocharge_type(battery->cable_type)) {
-			union power_supply_propval value;
+			union power_supply_propval value = {0};
 
 			battery->slow_charging = true;
 			pr_info ("%s: slow charging on : input current(%dmA), cable type(%d)\n",
