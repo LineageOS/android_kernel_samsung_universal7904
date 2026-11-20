@@ -33,6 +33,7 @@
 #if IS_ENABLED(CONFIG_EXYNOS_ACPM_DVFS)
 int exynos_acpm_get_rate_table(unsigned int id, unsigned int *rates, unsigned int max);
 int exynos_acpm_get_boot_rate(unsigned int id, unsigned long *rate);
+unsigned int exynos_acpm_get_max_khz(const char *domain);
 int exynos_acpm_set_rate(unsigned int id, unsigned long rate);
 int exynos_acpm_set_min_rate(unsigned int id, unsigned long khz);
 int exynos_acpm_vote(unsigned int id, unsigned int voter, unsigned long khz);

@@ -7,8 +7,9 @@
  *   CPUs 6-7 (Cortex-A73) -> ACPM_DVFS_CPUCL0 (domain 2), min-freq 936000
  * The OPPs come from the firmware FVmap. The FVmap is shared with Exynos7885
  * and lists frequencies above the 7904 SKU limits, so the table is capped
- * at the 7904 maxima (A53 1586 MHz, A73 1768 MHz). The firmware applies the
- * matching voltage for each request.
+ * at this chip's maximum from the ECT MINMAX table, as the stock kernel
+ * does (falling back to the 7904 maxima, A53 1586 MHz, A73 1768 MHz). The
+ * firmware applies the matching voltage for each request.
  */
 #include <linux/cpu.h>
 #include <linux/cpu_cooling.h>
@@ -48,6 +49,7 @@ struct m20_cluster {
 	unsigned int mif_len;
 	unsigned int first_cpu, last_cpu;
 	unsigned int min_khz, max_khz;
+	const char *ect_name;
 	struct cpufreq_frequency_table *table;
 	/* 4.4 interactive-governor compatibility (powerhint.json, init rc). */
 	struct kobject boost_kobj;
@@ -59,11 +61,11 @@ struct m20_cluster {
 
 static struct m20_cluster m20_clusters[] = {
 	{ .dom = 3, .first_cpu = 0, .last_cpu = 5,
-	  .min_khz = 449000, .max_khz = 1586000,
+	  .min_khz = 449000, .max_khz = 1586000, .ect_name = "dvfs_cpucl1",
 	  .voter = ACPM_VOTER_CPUCL1, .mif = m20_mif_cl1,
 	  .mif_len = ARRAY_SIZE(m20_mif_cl1) },
 	{ .dom = 2, .first_cpu = 6, .last_cpu = 7,
-	  .min_khz = 936000, .max_khz = 1768000,
+	  .min_khz = 936000, .max_khz = 1768000, .ect_name = "dvfs_cpucl0",
 	  .voter = ACPM_VOTER_CPUCL0, .mif = m20_mif_cl0,
 	  .mif_len = ARRAY_SIZE(m20_mif_cl0) },
 };
@@ -93,6 +95,9 @@ static int m20_build_table(struct m20_cluster *cl)
 
 	if (cl->table)
 		return 0;
+	i = exynos_acpm_get_max_khz(cl->ect_name);
+	if (i > 0)
+		cl->max_khz = i;
 	levels = exynos_acpm_get_rate_table(cl->dom, rates, ARRAY_SIZE(rates));
 	if (levels <= 0)
 		return levels ? levels : -ENODATA;

@@ -250,14 +250,18 @@ static DEVICE_ATTR_RW(dvfs_max_lock);
 static int m20_gpu_devfreq_register(struct kbase_device *kbdev)
 {
 	struct device *dev = kbdev->dev;
-	unsigned int rates[32];
+	unsigned int rates[32], max_khz;
 	int n, i, opps = 0, ret;
 
+	/* Stock caps G3D at this chip's ECT MINMAX maximum (gpu_max_clock_limit). */
+	max_khz = exynos_acpm_get_max_khz("dvfs_g3d");
+	if (!max_khz)
+		max_khz = M20_G3D_MAX;
 	n = exynos_acpm_get_rate_table(M20_G3D_DOM, rates, ARRAY_SIZE(rates));
 	if (n <= 0)
 		return n ? n : -ENODATA;
 	for (i = 0; i < n; i++) {
-		if (rates[i] < M20_G3D_MIN || rates[i] > M20_G3D_MAX)
+		if (rates[i] < M20_G3D_MIN || rates[i] > max_khz)
 			continue;
 		if (opps < ARRAY_SIZE(m20_opp) &&
 		    !dev_pm_opp_add(dev, rates[i] * 1000UL, 0))
@@ -311,7 +315,7 @@ static int m20_gpu_devfreq_register(struct kbase_device *kbdev)
 				r1, r2, r3, r4, r5);
 	}
 	dev_warn(dev, "m20 gpu devfreq: %d levels %u..%u kHz via ACPM, now %lu kHz\n",
-		 opps, M20_G3D_MIN, M20_G3D_MAX, m20_cur_khz);
+		 opps, M20_G3D_MIN, max_khz, m20_cur_khz);
 	return 0;
 }
 
