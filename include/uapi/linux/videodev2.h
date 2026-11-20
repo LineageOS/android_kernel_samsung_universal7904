@@ -71,7 +71,16 @@
  * Moved from videodev.h
  */
 #define VIDEO_MAX_FRAME               64
+#if !defined(__KERNEL__) && defined(EXYNOS_LEGACY_V4L2)
+/*
+ * Userspace built for Samsung's Exynos vendor drivers (17 plane
+ * descriptors) can opt in; the kernel only accepts that layout on
+ * those nodes (see include/media/exynos-v4l2-legacy.h).
+ */
+#define VIDEO_MAX_PLANES               17
+#else
 #define VIDEO_MAX_PLANES               8
+#endif
 
 /*
  *	M I S C E L L A N E O U S
