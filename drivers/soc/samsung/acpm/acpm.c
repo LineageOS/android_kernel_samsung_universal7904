@@ -28,7 +28,9 @@
 #include <linux/pm.h>
 #include <linux/input.h>
 #include <linux/power_supply.h>
+#include <linux/arm-smccc.h>
 #include <soc/samsung/acpm_dvfs.h>
+#include <soc/samsung/ect_parser.h>
 
 #include "acpm.h"
 #include "acpm_ipc.h"
@@ -71,6 +73,57 @@ int exynos_acpm_get_rate_table(unsigned int id, unsigned int *rates, unsigned in
 	return count;
 }
 EXPORT_SYMBOL_GPL(exynos_acpm_get_rate_table);
+
+/*
+ * Per-chip DVFS limits, as the stock kernel's cal-if: the ASV table version
+ * is fused at 0x1000900c bits 0-6 (read through the secure monitor), and the
+ * ECT GEN block has a MINMAX_<domain> row per version ({version, table, min,
+ * max, boot, resume} in MHz).
+ */
+#define ACPM_ASV_TABLE_VER_SFR	0x1000900c
+#define ACPM_SMC_CMD_REG	((unsigned long)-101)
+#define ACPM_SMC_SFR_R(addr)	((0x3UL << 30) | ((addr) >> 2))
+
+static int exynos_acpm_asv_table_ver(void)
+{
+	static int ver = -1;
+	struct arm_smccc_res res;
+
+	if (ver >= 0)
+		return ver;
+	arm_smccc_smc(ACPM_SMC_CMD_REG, ACPM_SMC_SFR_R(ACPM_ASV_TABLE_VER_SFR),
+		      0, 0, 0, 0, 0, 0, &res);
+	if (res.a0)
+		return -EIO;
+	ver = res.a2 & 0x7f;
+	pr_info("ACPM ASV table version %d\n", ver);
+	return ver;
+}
+
+unsigned int exynos_acpm_get_max_khz(const char *domain)
+{
+	struct ect_gen_param_table *t;
+	char name[32];
+	void *gen;
+	int ver, r;
+
+	ver = exynos_acpm_asv_table_ver();
+	gen = ect_get_block("GEN");
+	if (ver < 0 || !gen)
+		return 0;
+	snprintf(name, sizeof(name), "MINMAX_%s", domain);
+	t = ect_gen_param_get_table(gen, name);
+	if (!t || t->num_of_col < 4)
+		return 0;
+	for (r = 0; r < t->num_of_row; r++) {
+		unsigned int *row = &t->parameter[r * t->num_of_col];
+
+		if (row[0] == ver)
+			return row[3] * 1000;
+	}
+	return 0;
+}
+EXPORT_SYMBOL_GPL(exynos_acpm_get_max_khz);
 
 int exynos_acpm_get_boot_rate(unsigned int id, unsigned long *rate)
 {
