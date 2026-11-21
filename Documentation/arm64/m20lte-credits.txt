@@ -1,0 +1,34 @@
+=============================================
+Galaxy M20 (m20lte) 5.10 port: credits
+=============================================
+
+The Exynos 7885/7904 vendor drivers in this tree were ported from the
+LineageOS 4.4 kernel for the device (android_kernel_samsung_universal7904,
+lineage-22.2), which is based on Samsung's kernel source releases and
+carries fixes by community developers. The port squashed that history,
+so their work is credited here.
+
+Samsung Electronics wrote the vendor drivers; see the copyright headers.
+
+- soc: add the Exynos7885 SoC support code: K9100ii, SamarV-121
+- clk, pinctrl: add the Exynos7885 clock and pin banks: K9100ii, SamarV-121
+- platform: add MCT, watchdog, cpuidle, cpufreq, TMU and ADC changes: SamarV-121, K9100ii
+- mfd, regulator, rtc: add the S2MPU08 and S2MPB03 PMIC stack: K9100ii, SamarV-121
+- mmc: add the Exynos7885 dw_mmc host changes: SamarV-121, K9100ii
+- iommu: add the Exynos7885 SYSMMU and IOVMM: K9100ii, SamarV-121
+- ion, memory: add the legacy ION bridge and m2m1shot: K9100ii, SamarV-121
+- usb, phy: add the Exynos7885 USB PHY, dwc3 glue and notifiers: K9100ii, SamarV-121, Jesse Chan
+- power: add the S2MU004 charger, fuel gauge and battery stack: SamarV-121, K9100ii
+- input, sensors, fingerprint: add the Himax touch, sensors and fingerprint drivers: SamarV-121, K9100ii
+- fbdev: add the DECON/DSIM display driver: SamarV-121, K9100ii
+- sound: add ABOX, the COD3035 codec and the TFA9896 amplifier: SamarV-121, K9100ii, Diep Quynh
+- media: add the Exynos7885 camera, MFC, JPEG, scaler and G2D drivers: SamarV-121, K9100ii, DarkLord1731, Nolen Johnson
+- gpu: add the Mali r26p0 kbase driver: SamarV-121, K9100ii, Ankit Goyal, bengris32
+- net, misc: add the SCSC WLBT Wi-Fi and Bluetooth stack: SamarV-121, Tim Zimmermann, K9100ii, roynatech2544
+- misc: add the modem, GNSS and MCU IPC interfaces: SamarV-121, K9100ii, DarkLord1731
+- gud: add the Trustonic MobiCore driver: K9100ii, SamarV-121
+- misc: add sec_sysfs, the wakelock shim and helper headers: K9100ii, SamarV-121
+- of: accept the Samsung 4.4 memory node layout: K9100ii, SamarV-121
+- drivers: hook up the Samsung directories: K9100ii, SamarV-121
+- arm64: dts: add the Exynos7904 m20lte device tree: K9100ii, SamarV-121
+- arm64: configs: add m20lte_defconfig: K9100ii, SamarV-121, Pranav Vashi, Jprimero15, ivanmeler, Tim Zimmermann, Chenyang Zhong, Chatur27, Diep Quynh
